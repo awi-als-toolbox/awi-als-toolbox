@@ -50,6 +50,24 @@ class AirborneLaserScannerFile(object):
         # -> on timestamp per line to later select subsets of the full content
         self._read_line_timestamp()
 
+    def get_segment_list(self, segment_size_secs):
+        """
+        Get a list of (start, end) values for a given length (in seconds) that cover the entire profile
+        :param segment_size_secs: (int) length of the segments in seconds
+        :return: A list of (start, end) values in seconds
+        """
+
+        # Get the range of the file
+        fstart = self.line_timestamp[0]
+        fstop = self.line_timestamp[-1]
+
+        # Get list of intervals
+        ranges = np.arange(fstart, fstop+int(0.5*segment_size_secs), segment_size_secs)
+        start_secs = ranges[:-1]
+        end_secs = ranges[1:]
+
+        return zip(start_secs, end_secs)
+
     def get_data(self, start_seconds=None, end_seconds=None):
         """
         Read a subset of the ALS data and return its content. The subset is selected with the (integer) seconds of
