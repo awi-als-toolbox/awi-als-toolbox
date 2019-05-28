@@ -86,24 +86,6 @@ class AlsDEM(object):
             self.x[nan_mask] = np.nan
             self.y[nan_mask] = np.nan
 
-        # import matplotlib.pyplot as plt
-        #
-        # plt.figure("lon", dpi=300)
-        # plt.imshow(lon)
-        #
-        # plt.figure("lat", dpi=300)
-        # plt.imshow(lat)
-        #
-        # plt.figure("x", dpi=300)
-        # plt.imshow(self.x)
-        #
-        # plt.figure("y", dpi=300)
-        # plt.imshow(self.y)
-        #
-        # plt.show()
-        # stop
-
-
     def _griddata(self):
         """ Do the actual gridding """
         res = self._resolution

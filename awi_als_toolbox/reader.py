@@ -5,44 +5,46 @@
 
 __author__ = "Stefan Hendricks"
 
-
 import numpy as np
 
 from collections import OrderedDict
 
 import struct
 import logging
+import warnings
 
 
 class ALSL1BFileDefinition():
-    """ TODO: Move this to configuration file """
+    """ Data class containing the definitions of the header data in the ALS """
+
+    # Header information of the form (variable_name, [number of bytes, struct format])
+    header_dict = OrderedDict((('scan_lines', [4, '>L']),
+                               ('data_points_per_line', [2, '!H']),
+                               ('bytes_per_line', [2, '>H']),
+                               ('bytes_sec_line', [8, '>Q']),
+                               ('year', [2, '>H']),
+                               ('month', [1, '>b']),
+                               ('day', [1, '>b']),
+                               ('start_time_sec', [4, '>L']),
+                               ('stop_time_sec', [4, '>L']),
+                               ('device_name', [8, '>8s'])))
+
+    # Variable names and their data type
+    line_variables = OrderedDict((('timestamp', np.float64),
+                                  ('longitude', np.float64),
+                                  ('latitude', np.float64),
+                                  ('elevation', np.float64),
+                                  ('amplitude', np.float32),
+                                  ('reflectance', np.float32)))
+
     def __init__(self):
-        self.set_header_info()
-        self.set_line_variables()
-
-    def set_line_variables(self):
-        self.line_variables = OrderedDict((('timestamp', np.float64),
-                                           ('longitude', np.float64),
-                                           ('latitude', np.float64),
-                                           ('elevation', np.float64),
-                                           ('amplitude', np.float32),
-                                           ('reflectance', np.float32)))
-
-    def set_header_info(self):
-        self.header_dict = OrderedDict((('scan_lines', [4, '>L']),
-                                        ('data_points_per_line', [2, '!H']),
-                                        ('bytes_per_line', [2, '>H']),
-                                        ('bytes_sec_line', [8, '>Q']),
-                                        ('year', [2, '>H']),
-                                        ('month', [1, '>b']),
-                                        ('day', [1, '>b']),
-                                        ('start_time_sec', [4, '>L']),
-                                        ('stop_time_sec', [4, '>L']),
-                                        ('device_name', [8, '>8s'])))
+        """ """
+        pass
 
 
 class AirborneLaserScannerFile(object):
     """ Not more than a proof of concept yet """
+
     def __init__(self):
         self.filename = None
         self.header = ALSL1BHeader()
@@ -61,30 +63,37 @@ class AirborneLaserScannerFile(object):
         self.connected = True
         self.set_full_time_range()
 
-    def read_header(self, verbose=True):
-        """ Read the header of the ALS level 1b file """
+    def read_header(self, verbose=False):
+        """
+        Read the header of the ALS level 1b file
+        :param verbose: (bool) Flag that control the level of messages to stdio
+        :return: 
+        """
+
+        # Get the header information
         header_dict = self.filedef.header_dict
+
         with open(self.filename, 'rb') as f:
+
             # Read header size
             self.header.byte_size = struct.unpack('>b', f.read(1))[0]
-            logging.info("als_header.byte_size: %s" %
-                         str(self.header.byte_size))
+            logging.info("als_header.byte_size: %s" % str(self.header.byte_size))
             if self.header.byte_size == 36:
                 header_dict['data_points_per_line'] = [1, '>B']
             elif self.header.byte_size == 37:
                 header_dict['data_points_per_line'] = [2, '>H']
             else:
-                raise ValueError("Unkown ALS L1B header size:",
-                                 self.header.byte_size,
-                                 "\nShould be 36 or 37 or unsupported Device")
+                msg = "Unkown ALS L1B header size: %g (Should be 36 or 37 or unsupported Device)"
+                msg = msg % self.header.byte_size,
+                raise ValueError(msg)
+
             # Read Rest of header
             for key in header_dict.keys():
                 nbytes, fmt = header_dict[key][0], header_dict[key][1]
                 setattr(self.header, key,
                         struct.unpack(fmt, f.read(nbytes))[0])
                 if verbose:
-                    logging.info("als_header.%s: %s" %
-                                 (key, str(getattr(self.header, key))))
+                    logging.info("als_header.%s: %s" % (key, str(getattr(self.header, key))))
 
     def read_line_timestamp(self):
         """ Read the line time stamp """
@@ -135,9 +144,7 @@ class AirborneLaserScannerFile(object):
         nlines = self.n_selected_lines
         nshots = self.header.data_points_per_line
         for key in self.filedef.line_variables.keys():
-            setattr(self, key,
-                    np.ndarray(shape=(nlines, nshots),
-                               dtype=self.filedef.line_variables[key]))
+            setattr(self, key, np.ndarray(shape=(nlines, nshots),dtype=self.filedef.line_variables[key]))
 
     def set_time_range(self, time_range):
         """ Sets the first and last line of the subsection """
@@ -158,16 +165,16 @@ class AirborneLaserScannerFile(object):
         """ Check for oddities in the time range selection """
         fstart = self.line_timestamp[0]
         fstop = self.line_timestamp[-1]
+
         # Raise Errors
         if start > stop:
-            raise ValueError(
-                "start time {start} after stop time {stop}".format(
-                    start=start, stop=stop))
+            msg = "start time {start} after stop time {stop}".format(start=start, stop=stop)
+            raise ValueError(msg)
         if start > fstop or stop < fstart:
-            raise ValueError(
-                "time range {start} - {stop} out of bounds " +
-                "{fstart} - {fstop}".format(
-                    start=start, stop=stop, fstart=fstart, fstop=fstop))
+            msg = "time range {start} - {stop} out of bounds {fstart} - {fstop}"
+            msg = msg.format(start=start, stop=stop, fstart=fstart, fstop=fstop)
+            raise ValueError(msg)
+
         # Raise Warnings
         if start < fstart:
             # TODO: Use logging
@@ -187,8 +194,7 @@ class AirborneLaserScannerFile(object):
         # Start byte of scan line
         startbyte = np.uint32(self.header.byte_size)
         startbyte += np.uint32(self.header.bytes_sec_line)
-        startbyte += np.uint32(self.line_index[0]) * \
-            np.uint32(self.header.bytes_per_line)
+        startbyte += np.uint32(self.line_index[0]) * np.uint32(self.header.bytes_per_line)
         # Number bytes for selected scan lines
         # n_scan_lines = self.line_index[1]-self.line_index[0]
         nbytes = self.header.bytes_per_line  # * n_scan_lines
@@ -201,7 +207,7 @@ class AirborneLaserScannerFile(object):
     def get_center_beam_index(self):
         """ Returns index of the center beam """
         if not self.connected:
-            return 0
+            return -1
         return np.median(np.arange(self.header.data_points_per_line))
 
     def get_n_shots_per_line(self):
