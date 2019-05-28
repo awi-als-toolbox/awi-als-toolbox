@@ -67,16 +67,13 @@ class AirborneLaserScannerFile(object):
             end_seconds = self.line_timestamp[-1]
 
         # Sanity check
-        self.validate_time_range(start_seconds, end_seconds)
+        self._validate_time_range(start_seconds, end_seconds)
 
         # Get the number of lines
-        line_index = [
-            np.where(self.line_timestamp >= start_seconds)[0][0],
-            np.where(self.line_timestamp <= end_seconds)[0][-1]]
-        n_selected_lines = line_index[1] - line_index[0]
+        line_range, n_selected_lines = self._get_line_range(start_seconds, end_seconds)
 
         # Get the section of the file to read
-        startbyte, nbytes = self._get_data_bytes(line_index)
+        startbyte, nbytes = self._get_data_bytes(line_range)
 
         # Get the shape of the output array
         nlines, nshots = n_selected_lines, self.header.data_points_per_line
@@ -93,6 +90,7 @@ class AirborneLaserScannerFile(object):
                 startbyte += nbytes
 
         # Unpack the binary data
+        # TODO: This is clunky, find a better way
         start_byte, stop_byte = 0, self.header.bytes_per_line
         for i in np.arange(nlines):
             line = bindat[i]
@@ -113,7 +111,7 @@ class AirborneLaserScannerFile(object):
         # All done, return
         return als
 
-    def validate_time_range(self, start, stop):
+    def _validate_time_range(self, start, stop):
         """ Check for oddities in the time range selection """
         fstart = self.line_timestamp[0]
         fstop = self.line_timestamp[-1]
@@ -134,22 +132,38 @@ class AirborneLaserScannerFile(object):
         if stop > fstop:
             logging.warn("stop time {stop} after actual end of file {fstop}".format(stop=stop, fstop=fstop))
 
-    def _get_data_bytes(self, line_index):
+    def _get_data_bytes(self, line_range):
         """
         Computes the start byte and the number of bytes to read for the given lines
-        :param line_index: (array) list of scan lines to be read
+        :param line_range: (array) index of first and last line to read
         :return: (int, int) startbyte and the number of bytes for the data subset
         """
 
         # Start byte of scan line
         startbyte = np.uint32(self.header.byte_size)
         startbyte += np.uint32(self.header.bytes_sec_line)
-        startbyte += np.uint32(line_index[0]) * np.uint32(self.header.bytes_per_line)
+        startbyte += np.uint32(line_range[0]) * np.uint32(self.header.bytes_per_line)
 
         # Number bytes for selected scan lines
         nbytes = self.header.bytes_per_line
 
         return startbyte, nbytes
+
+    def _get_line_range(self, start_seconds, end_seconds):
+        """
+        Identify the last and first line for the time range
+        :param start_seconds: (int) start of the subset in seconds of the day
+        :param end_seconds: (int) end of the subset in seconds of the day
+        :return: (int list, int) a list with [first line index, last line index] and number of lines
+        """
+
+        # Get the number of lines
+        line_range = [
+            np.where(self.line_timestamp >= start_seconds)[0][0],
+            np.where(self.line_timestamp <= end_seconds)[0][-1]]
+        n_selected_lines = line_range[1] - line_range[0]
+
+        return line_range, n_selected_lines
 
     def _read_line_timestamp(self):
         """ Read the line time stamp """
