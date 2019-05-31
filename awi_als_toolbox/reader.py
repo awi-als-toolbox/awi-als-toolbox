@@ -126,6 +126,9 @@ class AirborneLaserScannerFile(object):
             stop_byte += self.header.bytes_per_line
             als.elevation[i, :] = struct.unpack(">{n}d".format(n=nshots), line[i0:i1])
 
+        # Filter invalid variables
+        als.sanitize()
+
         # All done, return
         return als
 
@@ -262,3 +265,26 @@ class ALSData(object):
         # Create the array entries
         for key in vardef.keys():
             setattr(self, key, np.ndarray(shape=shape, dtype=vardef[key]))
+
+
+    def sanitize(self):
+        """ Run a series of test to identify illegal data points (e.g. out of bounds lon/lat, etc) """
+
+        # Find illegal latitude values
+        illegal_lat = np.where(np.abs(self.latitude) > 90.0)
+        for key in self.vardef.keys():
+            var = getattr(self, key)
+            var[illegal_lat] = np.nan
+            setattr(self, key, var)
+
+    @property
+    def dims(self):
+        return self.elevation.shape
+
+    @property
+    def n_lines(self):
+        return self.dims[0]
+
+    @property
+    def n_shots(self):
+        return self.dims[1]
