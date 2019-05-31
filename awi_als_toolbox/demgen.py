@@ -221,10 +221,18 @@ class AlsDEMCfg(object):
         :return:
         """
 
-        valid_presets = ["sea_ice_low"]
+        valid_presets = ["sea_ice_low, sea_ice_high"]
 
+        # Low altitude (200 - 1000 ft) sea ice surveys
+        # -> high latitude resolution
         if str(mode) == "sea_ice_low":
             cfg = cls(resolution=0.25)
+
+        # High altitude (> 1500 ft) sea ice surveys
+        # -> default settings
+        elif str(mode) == "sea_ice_high":
+            cfg = cls()
+
         else:
             msg = "Unknown preset: %s (known presets: %s)" % (str(mode), ",".join(valid_presets))
             raise ValueError(msg)
