@@ -75,7 +75,10 @@ class AlsDemMap(object):
                         rc={"lines.linewidth": 1.5})
         self._plot()
         figManager = plt.get_current_fig_manager()
-        figManager.window.showMaximized()
+        try:
+            figManager.window.showMaximized()
+        except AttributeError:
+            figManager.window.state('zoomed')
         plt.show()
         plt.close(self.fig)
 
