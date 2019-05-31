@@ -40,9 +40,10 @@ class AlsDemMap(object):
         self._fig_reference_aspect = 3
 
     def set_dem(self, dem):
+        # TODO: Remove, use self.alsdem instead
         self.dem_x = dem.dem_x
         self.dem_y = dem.dem_y
-        self.dem_z = dem.dem_z
+        self.dem_z = dem.dem_z_masked
         self.dem_mask = dem.dem_mask
 
     def set_cmap(self, **kwargs):
