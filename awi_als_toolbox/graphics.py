@@ -26,8 +26,9 @@ class AlsDemMap(object):
                      'qmin': 1.0, 'qmax': 99.0, 'vmin': 0.0, 'vmax': 2.0,
                      'nice_numbers': True}
 
-    def __init__(self):
-        self._has_dem = False
+    def __init__(self, dem):
+
+        self.dem = dem
         self._use_hillshade = True
         self._hillshade_args = self.HILLSHADE_DEFAULT
         self._actual_heading = True
@@ -38,13 +39,6 @@ class AlsDemMap(object):
 
         self.fig = plt.figure("ALS DEM Map", figsize=(20, 10), facecolor='white')
         self._fig_reference_aspect = 3
-
-    def set_dem(self, dem):
-        # TODO: Remove, use self.alsdem instead
-        self.dem_x = dem.dem_x
-        self.dem_y = dem.dem_y
-        self.dem_z = dem.dem_z_masked
-        self.dem_mask = dem.dem_mask
 
     def set_cmap(self, **kwargs):
         """
@@ -72,8 +66,7 @@ class AlsDemMap(object):
         """ Creates a quick and dirty DEM plot using matplotlib """
 
         import seaborn as sns
-        sns.set_context("notebook", font_scale=1.5,
-                        rc={"lines.linewidth": 1.5})
+        sns.set_context("notebook", font_scale=1.5, rc={"lines.linewidth": 1.5})
         self._plot()
         figManager = plt.get_current_fig_manager()
         try:
@@ -124,8 +117,8 @@ class AlsDemMap(object):
     def _scale_axes(self):
         # Get Data extent
         left = 0
-        right = np.amax(self.dem_x) - np.amin(self.dem_x)
-        height = np.amax(self.dem_y) - np.amin(self.dem_y)
+        right = np.amax(self.dem.dem_x) - np.amin(self.dem.dem_x)
+        height = np.amax(self.dem.dem_y) - np.amin(self.dem.dem_y)
         bottom = -0.5 * height
         top = 0.5 * height
         # Get figure extent
@@ -149,10 +142,10 @@ class AlsDemMap(object):
     def _get_percintels(self):
         """ Calculates the percintels of the elevation data """
         from plib.helpers.scaling import auto_bins
-        finite = np.where(np.isfinite(self.dem_z))
+        finite = np.where(np.isfinite(self.dem.dem_z))
         qmin = self._cmap_settings['qmin']
         qmax = self._cmap_settings['qmax']
-        limits = np.percentile(self.dem_z[finite], [qmin, qmax])
+        limits = np.percentile(self.dem.dem_z[finite], [qmin, qmax])
         if self._cmap_settings['nice_numbers']:
             limits = auto_bins(limits[0], limits[1])
         return [np.amin(limits), np.amax(limits)]
@@ -171,8 +164,8 @@ class AlsDemMap(object):
         vmin, vmax = self._get_range()
         # TODO: Allow hillshading configuration
         ls = LightSource(azdeg=315, altdeg=45)
-        rgb = ls.shade(self.dem_z, cmap=self._cmap, blend_mode="soft", vmin=vmin, vmax=vmax, vert_exag=10,
-                       dx=0.25, dy=0.25)
+        rgb = ls.shade(self.dem.dem_z_masked, cmap=self._cmap, blend_mode="soft", vmin=vmin, vmax=vmax, vert_exag=10,
+                       dx=self.dem.cfg.resolution, dy=self.dem.cfg.resolution)
         return rgb
 
 
