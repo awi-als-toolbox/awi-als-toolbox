@@ -18,7 +18,7 @@ class ALSPointCloudFilter(object):
 class AtmosphericBackscatterFilter(ALSPointCloudFilter):
     """ A filter for removing backscatter from fog/ice crystals/ ... """
 
-    def __init__(self, filter_threshold_m=2):
+    def __init__(self, filter_threshold_m=5):
         """
 
         :param filter_threshold_m:
@@ -52,7 +52,7 @@ class AtmosphericBackscatterFilter(ALSPointCloudFilter):
             elevations_nonan[np.isnan(elevations_nonan)] = line_median
 
             # Search for sudden changes (spikes)
-            spike_indices = self._get_filter_indices(elevations_nonan, 2.0)
+            spike_indices = self._get_filter_indices(elevations_nonan, self.cfg["filter_threshold_m"])
 
             # plt.scatter(x[spike_indices], als.elevation[line_index, spike_indices], s=2, edgecolor="red", c="none")
             # plt.plot(x, np.full(x.shape, line_median))
