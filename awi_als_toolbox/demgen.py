@@ -56,11 +56,13 @@ class AlsDEM(object):
         nan_mask = np.where(is_nan)
 
         lon, lat = np.copy(self.als.longitude), np.copy(self.als.latitude)
+
         lon[nan_mask] = lon_0
         lat[nan_mask] = lat_0ts
 
         # get projection coordinates
-        p = Proj(proj='stere', lat_ts=lat_0ts, lat_0=lat_0ts, lon_0=lon_0)
+        self._proj_parameters = dict(proj='stere', lat_ts=lat_0ts, lat_0=lat_0ts, lon_0=lon_0)
+        p = Proj(**self._proj_parameters)
         self.x, self.y = p(lon, lat)
 
         if len(nan_mask) > 0:
