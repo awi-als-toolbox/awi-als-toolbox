@@ -25,7 +25,7 @@ class AirborneLaserScannerFile(object):
                                   ('reflectance', np.float32)))
 
 
-    def __init__(self, filepath):
+    def __init__(self, filepath, **header_kwargs):
         """
         Connects to a AWI binary ALS data file. The data is not parsed into memory when this is class is called,
         only the header information that is necessary to decode the binary data structure.
@@ -37,13 +37,16 @@ class AirborneLaserScannerFile(object):
             als = alsfile.get_data(start, stop)
 
         :param filepath: (str) The path of the AWI ALS file
+
+        :param header_kwargs: Keywords for the header parsing class (
         """
 
         # Store Parameter
         self.filepath = filepath
 
+
         # Decode and store header information
-        self.header = ALSFileHeader(filepath)
+        self.header = ALSFileHeader(filepath, **header_kwargs)
         self.line_timestamp = None
 
         # Read the line timestamp
@@ -210,12 +213,16 @@ class ALSFileHeader(object):
                                ('stop_time_sec', [4, '>L']),
                                ('device_name', [8, '>8s'])))
 
-    def __init__(self, filepath, verbose=True):
+    def __init__(self, filepath, verbose=True, device_name_override=None):
         """
         Decode and store header information from binary AWI ALS files
         :param filepath: (str) The path to the ALS file
         :param verbose: (bool) Flag determining the verbosity
+        :param device_name_override: (str, default: None) The name of the sensor. May be not correct in the source
+        files for newer versions
         """
+
+        self.device_name_override = device_name_override
 
         # Read the header
         with open(filepath, 'rb') as f:
@@ -237,7 +244,10 @@ class ALSFileHeader(object):
             # Read Rest of header
             for key in self.header_dict.keys():
                 nbytes, fmt = self.header_dict[key][0], self.header_dict[key][1]
-                setattr(self, key, struct.unpack(fmt, f.read(nbytes))[0])
+                value = struct.unpack(fmt, f.read(nbytes))[0]
+                if key == "device_name" and self.device_name_override is not None:
+                    value = self.device_name_override
+                setattr(self, key, value)
                 if verbose:
                     print "als_header.%s: %s" % (key, str(getattr(self, key)))
 
