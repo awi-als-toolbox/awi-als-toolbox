@@ -175,7 +175,8 @@ class AlsDEM(object):
 
 class AlsDEMCfg(object):
 
-    def __init__(self, resolution=None, align_heading=None, griddata=None, gap_filter=None, grid_pad_fraction=None):
+    def __init__(self, resolution=None, align_heading=None, griddata=None, gap_filter=None, grid_pad_fraction=None,
+                 segment_len_secs=None):
         """
         Filter settings for DEM generation
         :param resolution:
@@ -213,6 +214,11 @@ class AlsDEMCfg(object):
             grid_pad_fraction = 0.01
         self._grid_pad_fraction = grid_pad_fraction
 
+        # Standard length of segments
+        if segment_len_secs is None:
+            segment_len_secs = 20.0
+        self._segment_len_secs = segment_len_secs
+
     @classmethod
     def preset(cls, mode):
         """
@@ -226,12 +232,12 @@ class AlsDEMCfg(object):
         # Low altitude (200 - 1000 ft) sea ice surveys
         # -> high latitude resolution
         if str(mode) == "sea_ice_low":
-            cfg = cls(resolution=0.25)
+            cfg = cls(resolution=0.25, segment_len_secs=10)
 
         # High altitude (> 1500 ft) sea ice surveys
         # -> default settings
         elif str(mode) == "sea_ice_high":
-            cfg = cls()
+            cfg = cls(resolution=0.5, segment_len_secs=30)
 
         else:
             msg = "Unknown preset: %s (known presets: %s)" % (str(mode), ",".join(valid_presets))
@@ -258,4 +264,8 @@ class AlsDEMCfg(object):
     @property
     def grid_pad_fraction(self):
         return float(self._grid_pad_fraction)
+
+    @property
+    def segment_len_secs(self):
+        return int(self._segment_len_secs)
 
