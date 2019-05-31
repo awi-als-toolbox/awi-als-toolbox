@@ -224,8 +224,10 @@ class ALSFileHeader(object):
                 self.header_dict['data_points_per_line'] = [1, '>B']
             elif self.byte_size == 37:
                 self.header_dict['data_points_per_line'] = [2, '>H']
+            elif self.byte_size == 39:
+                self.header_dict['bytes_per_line'] = [4, '>L']
             else:
-                msg = "Unkown ALS L1B header size: %g (Should be 36 or 37 or unsupported Device)"
+                msg = "Unknown ALS L1B header size: %g (Should be 36, 37 or 39)"
                 msg = msg % self.byte_size,
                 raise ValueError(msg)
 
@@ -234,7 +236,7 @@ class ALSFileHeader(object):
                 nbytes, fmt = self.header_dict[key][0], self.header_dict[key][1]
                 setattr(self, key, struct.unpack(fmt, f.read(nbytes))[0])
                 if verbose:
-                    logging.info("als_header.%s: %s" % (key, str(getattr(self, key))))
+                    print "als_header.%s: %s" % (key, str(getattr(self, key)))
 
     @property
     def center_beam_index(self):
