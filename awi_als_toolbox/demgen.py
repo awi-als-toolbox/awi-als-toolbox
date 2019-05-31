@@ -125,13 +125,6 @@ class AlsDEM(object):
         else:
             raise NotImplementedError("Filter algorithm: %s" % filter_algorithm)
 
-#        structure = [[0,1,0],
-#                     [1,1,1],
-#                     [0,1,0]]
-#        cluster_id, num = measurements.label(nodata_mask, structure=structure)
-#        cluster_size = measurements.sum(nodata_mask, cluster_id,
-#                                        index=np.arange(cluster_id.max()+1))
-#        data_mask = cluster_size[cluster_id] < 50
         self.dem_mask = ~data_mask
 
     def _align(self):
