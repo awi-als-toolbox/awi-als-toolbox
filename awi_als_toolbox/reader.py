@@ -108,11 +108,10 @@ class AirborneLaserScannerFile(object):
             for i in np.arange(n_selected_lines):
                 f.seek(startbyte)
                 bindat[i] = f.read(nbytes)
-                startbyte += nbytes
+                startbyte = np.uint64(startbyte + nbytes)
 
         # Unpack the binary data
         # TODO: This is clunky, find a better way
-        start_byte, stop_byte = 0, self.header.bytes_per_line
         for i in np.arange(nlines):
             line = bindat[i]
             i0, i1 = 0, 8*nshots
@@ -164,9 +163,9 @@ class AirborneLaserScannerFile(object):
         """
 
         # Start byte of scan line
-        startbyte = np.uint32(self.header.byte_size)
-        startbyte += np.uint32(self.header.bytes_sec_line)
-        startbyte += np.uint32(line_range[0]) * np.uint32(self.header.bytes_per_line)
+        startbyte = np.uint64(self.header.byte_size)
+        startbyte += np.uint64(self.header.bytes_sec_line)
+        startbyte += np.uint64(line_range[0]) * np.uint64(self.header.bytes_per_line)
 
         # Number bytes for selected scan lines
         nbytes = self.header.bytes_per_line
