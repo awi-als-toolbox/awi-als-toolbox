@@ -71,12 +71,13 @@ class AirborneLaserScannerFile(object):
 
         return zip(start_secs, end_secs)
 
-    def get_data(self, start_seconds=None, end_seconds=None):
+    def get_data(self, start_seconds=None, end_seconds=None, sanitize=True):
         """
         Read a subset of the ALS data and return its content. The subset is selected with the (integer) seconds of
         the day. If `start_seconds` and `end_seconds` are omitted, the maximum range will be used
         :param start_seconds: (int) Start of the subset in seconds of the day
         :param end_seconds: (int) End of the subset in seconds of the day
+        :param sanitize: (bool) Flag whether to filter illegal entries (out of bound lat/lons)
         :return: an ALSData object containing the data subset
         """
 
@@ -129,7 +130,8 @@ class AirborneLaserScannerFile(object):
             als.elevation[i, :] = struct.unpack(">{n}d".format(n=nshots), line[i0:i1])
 
         # Filter invalid variables
-        als.sanitize()
+        if sanitize:
+            als.sanitize()
 
         # All done, return
         return als
