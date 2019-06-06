@@ -257,7 +257,7 @@ class ALSFileHeader(object):
     @property
     def center_beam_index(self):
         """ Returns index of the center beam """
-        return np.median(np.arange(self.data_points_per_line))
+        return int(np.median(np.arange(self.data_points_per_line)))
 
 
 class ALSData(object):
