@@ -102,6 +102,7 @@ class AirborneLaserScannerFile(object):
 
         # Init the data output
         als = ALSData(self.line_variables, (nlines, nshots))
+        als.set_debug_data(startbyte=startbyte, nbytes=nbytes, line_range=line_range)
 
         # Read the binary data
         bindat = np.ndarray(shape=(nlines), dtype=object)
@@ -274,10 +275,14 @@ class ALSData(object):
         self.vardef = vardef
         self.shape = shape
 
+        self.debug_data = {}
+
         # Create the array entries
         for key in vardef.keys():
             setattr(self, key, np.ndarray(shape=shape, dtype=vardef[key]))
 
+    def set_debug_data(self, **kwargs):
+        self.debug_data.update(kwargs)
 
     def sanitize(self):
         """ Run a series of test to identify illegal data points (e.g. out of bounds lon/lat, etc) """
