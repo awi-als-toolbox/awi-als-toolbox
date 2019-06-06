@@ -284,10 +284,12 @@ class ALSData(object):
 
         # Find illegal latitude values
         illegal_lat = np.where(np.abs(self.latitude) > 90.0)
-        for key in self.vardef.keys():
-            var = getattr(self, key)
-            var[illegal_lat] = np.nan
-            setattr(self, key, var)
+        illegal_lon = np.where(np.abs(self.longitude) > 180.0)
+        for illegal_values in [illegal_lat, illegal_lon]:
+            for key in self.vardef.keys():
+                var = getattr(self, key)
+                var[illegal_values] = np.nan
+                setattr(self, key, var)
 
     @property
     def dims(self):
