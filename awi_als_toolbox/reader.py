@@ -307,3 +307,16 @@ class ALSData(object):
     @property
     def n_shots(self):
         return self.dims[1]
+
+    @property
+    def lat_range(self):
+        return np.nanmin(self.latitude), np.nanmax(self.latitude)
+
+    @property
+    def lon_range(self):
+        return np.nanmin(self.longitude), np.nanmax(self.longitude)
+
+    @property
+    def elev_range(self):
+        return np.nanmin(self.elevation), np.nanmax(self.elevation)
+
