@@ -214,11 +214,10 @@ class ALSFileHeader(object):
                                ('stop_time_sec', [4, '>L']),
                                ('device_name', [8, '>8s'])))
 
-    def __init__(self, filepath, verbose=True, device_name_override=None):
+    def __init__(self, filepath, device_name_override=None):
         """
         Decode and store header information from binary AWI ALS files
         :param filepath: (str) The path to the ALS file
-        :param verbose: (bool) Flag determining the verbosity
         :param device_name_override: (str, default: None) The name of the sensor. May be not correct in the source
         files for newer versions
         """
@@ -249,8 +248,10 @@ class ALSFileHeader(object):
                 if key == "device_name" and self.device_name_override is not None:
                     value = self.device_name_override
                 setattr(self, key, value)
-                if verbose:
-                    print "als_header.%s: %s" % (key, str(getattr(self, key)))
+
+    @classmethod
+    def get_header_dict(cls):
+        return cls.header_dict
 
     @property
     def center_beam_index(self):
