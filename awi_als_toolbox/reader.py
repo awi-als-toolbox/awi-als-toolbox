@@ -126,8 +126,6 @@ class AirborneLaserScannerFile(object):
             als.longitude[i, :] = struct.unpack(">{n}d".format(n=nshots), line[i0:i1])
             i0 = i1
             i1 = i0 + 8*nshots
-            start_byte += self.header.bytes_per_line
-            stop_byte += self.header.bytes_per_line
             als.elevation[i, :] = struct.unpack(">{n}d".format(n=nshots), line[i0:i1])
 
         # Filter invalid variables
