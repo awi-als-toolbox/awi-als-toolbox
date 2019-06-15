@@ -16,7 +16,6 @@ import matplotlib.ticker as ticker
 from matplotlib.colors import LightSource
 
 
-
 class AlsDemMap(object):
 
     DEFAULT_LABELS = {'xaxis': 'meter', 'yaxis': 'meter',
@@ -141,7 +140,6 @@ class AlsDemMap(object):
 
     def _get_percintels(self):
         """ Calculates the percintels of the elevation data """
-        from plib.helpers.scaling import auto_bins
         finite = np.where(np.isfinite(self.dem.dem_z))
         qmin = self._cmap_settings['qmin']
         qmax = self._cmap_settings['qmax']
@@ -167,6 +165,46 @@ class AlsDemMap(object):
         rgb = ls.shade(self.dem.dem_z_masked, cmap=self._cmap, blend_mode="soft", vmin=vmin, vmax=vmax, vert_exag=10,
                        dx=self.dem.cfg.resolution, dy=self.dem.cfg.resolution)
         return rgb
+
+
+def auto_bins(vmin, vmax, nbins=10):
+    steps = [0.5, 1, 1.5, 2, 2.5, 4, 5, 6, 8, 10]
+    scale, offset = scale_range(vmin, vmax, nbins)
+    vmin -= offset
+    vmax -= offset
+    raw_step = (vmax-vmin)/nbins
+    scaled_raw_step = raw_step/scale
+    best_vmax = vmax
+    best_vmin = vmin
+
+    for step in steps:
+        if step < scaled_raw_step:
+            continue
+        step *= scale
+        best_vmin = step*divmod(vmin, step)[0]
+        best_vmax = best_vmin + step*nbins
+        if (best_vmax >= vmax):
+            break
+    return (np.arange(nbins+1) * step + best_vmin + offset)
+
+
+def scale_range(vmin, vmax, n=1, threshold=100):
+    dv = abs(vmax - vmin)
+    maxabsv = max(abs(vmin), abs(vmax))
+    if maxabsv == 0 or dv/maxabsv < 1e-12:
+        return 1.0, 0.0
+    meanv = 0.5*(vmax+vmin)
+    if abs(meanv)/dv < threshold:
+        offset = 0
+    elif meanv > 0:
+        ex = divmod(np.log10(meanv), 1)[0]
+        offset = 10**ex
+    else:
+        ex = divmod(np.log10(-meanv), 1)[0]
+        offset = -10**ex
+    ex = divmod(np.log10(dv/n), 1)[0]
+    scale = 10**ex
+    return scale, offset
 
 
 def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
