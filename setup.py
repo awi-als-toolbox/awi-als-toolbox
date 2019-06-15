@@ -1,16 +1,11 @@
 # -*- coding: utf-8 -*-
 
-from Cython.Build import cythonize
-from Cython.Distutils import build_ext
-
-from setuptools.extension import Extension
 from setuptools import setup, find_packages
 
-import numpy
 import os
 
 # Get the readme
-with open('README.rst') as f:
+with open('readme.rst') as f:
     readme = f.read()
 
 # Get the licence
