@@ -5,7 +5,7 @@ from setuptools import setup, find_packages
 import os
 
 # Get the readme
-with open('readme.rst') as f:
+with open('README.rst') as f:
     readme = f.read()
 
 # Get the licence
