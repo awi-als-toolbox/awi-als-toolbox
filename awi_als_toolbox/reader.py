@@ -69,7 +69,7 @@ class AirborneLaserScannerFile(object):
         start_secs = ranges[:-1]
         end_secs = ranges[1:]
 
-        return zip(start_secs, end_secs)
+        return list(zip(start_secs, end_secs))
 
     def get_data(self, start_seconds=None, end_seconds=None, sanitize=True):
         """
