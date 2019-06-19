@@ -95,6 +95,7 @@ class AlsDemMap(object):
 
         rgba = self._get_image_object()
         ax1.imshow(rgba, interpolation='none', origin='lower',  extent=data_extent, zorder=100)
+        ax1.set_facecolor("0.0")
 
         ax1.xaxis.set_major_locator(ticker.MultipleLocator(self.grid_spacing))
         ax1.yaxis.set_major_locator(ticker.MultipleLocator(self.grid_spacing))
