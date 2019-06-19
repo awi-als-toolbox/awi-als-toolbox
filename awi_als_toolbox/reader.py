@@ -44,10 +44,22 @@ class AirborneLaserScannerFile(object):
         # Store Parameter
         self.filepath = filepath
 
-
         # Decode and store header information
         self.header = ALSFileHeader(filepath, **header_kwargs)
         self.line_timestamp = None
+
+        # Validate header infos
+        if self.header.status != 0:
+            msg = "Invalid header in %s\n" % filepath
+            msg += "Red flags:\n"
+            for errmsg in self.header.status_context.split(";")[:-1]:
+                msg += " - %s\n" % errmsg
+            header_dict = self.header.get_header_dict()
+            msg += "Full Header:\n"
+            for key in header_dict.keys():
+                value = getattr(self.header, key)
+                msg += "- %s:%s\n" % (key, str(value))
+            raise IOError(msg)
 
         # Read the line timestamp
         # -> on timestamp per line to later select subsets of the full content
@@ -152,9 +164,9 @@ class AirborneLaserScannerFile(object):
         # Raise Warnings
         if start < fstart:
             # TODO: Use logging
-            logging.warn("start time {start} before actual start of file {fstart}".format(start=start, fstart=fstart))
+            logging.warning("start time {start} before actual start of file {fstart}".format(start=start, fstart=fstart))
         if stop > fstop:
-            logging.warn("stop time {stop} after actual end of file {fstop}".format(stop=stop, fstop=fstop))
+            logging.warning("stop time {stop} after actual end of file {fstop}".format(stop=stop, fstop=fstop))
 
     def _get_data_bytes(self, line_range):
         """
@@ -248,14 +260,48 @@ class ALSFileHeader(object):
                     value = self.device_name_override
                 setattr(self, key, value)
 
+        # Check if the header was parsed correctly
+        self._status = 0
+        self._status_context = ""
+        try:
+            self._validate()
+        except:
+            self._status = 1
+            self._status_context += "Unhandled exception in validation;"
+
     @classmethod
     def get_header_dict(cls):
         return cls.header_dict
+
+    def _validate(self):
+        """
+        Runs a series of plausibility tests (looking for a red flag) to check if the header information
+        is legit. The reason is that the information will be garbage if one byte is off.
+        This method will set the status flag to 1 if a red flag is found and add reasons to the status context
+        :return: None
+        """
+
+        # 1. Test if start|stop_time_sec are within a day
+        for targ in ["start_time_sec", "stop_time_sec"]:
+            val = getattr(self, targ)
+            if val < 0 or val > 86400:
+                self._status = 1
+                self._status_context += "%s out of bounds (%g);" % (targ, val)
 
     @property
     def center_beam_index(self):
         """ Returns index of the center beam """
         return int(np.median(np.arange(self.data_points_per_line)))
+
+    @property
+    def status(self):
+        """ Status flag (0: ok, 1: invalid) """
+        return int(self._status)
+
+    @property
+    def status_context(self):
+        """ Status flag (0: ok, 1: invalid) """
+        return self._status_context
 
 
 class ALSData(object):
