@@ -136,18 +136,9 @@ class AlsDEM(object):
 
         shape = np.shape(self.x)
 
-        # Get angle of direction (cbi: center beam index)
-        # NOTE: This implementation seems to be unstable, because the shot with the center beam index can be NaN
-        # cbi = np.median(np.arange(len(self.x[0, :]))).astype(int)
-        # vec1 = [self.x[0, cbi], self.y[0, cbi],  0.0]
-        # vec2 = [self.x[-1, cbi], self.y[-1, cbi], 0.0]
-
-        # Alternative implementation with mean over all entries within the line.
-        # -> should be a good approximation of the line center
-        # NOTE: 2019-05-30: Relaxed the criterion even further (mean of first and last 10 scan lines)
-        vec1 = [np.nanmedian(self.x[0:10, :]), np.nanmedian(self.y[0:10, :]), 0.0]
-        vec2 = [np.nanmedian(self.x[-11:-1, :]), np.nanmedian(self.y[-11:-1, :]), 0.0]
-        angle = -1.0*np.arctan((vec2[1]-vec1[1])/(vec2[0]-vec1[0]))
+        # Get the rotation angle
+        # NOTE in this case the aircraft is moving from left to right
+        angle = -1.0*self.heading_prj
 
         # validity check -> Do not rotate if angle is nan
         if np.isnan(angle):
@@ -172,6 +163,31 @@ class AlsDEM(object):
                                   'angle': angle,
                                   'rotation_matrix': rot_matrix}
 
+    @property
+    def heading_prj(self):
+        """ The heading of the track in the current projection """
+
+        # Get angle of direction (cbi: center beam index)
+        # NOTE: This implementation seems to be unstable, because the shot with the center beam index can be NaN
+        # cbi = np.median(np.arange(len(self.x[0, :]))).astype(int)
+        # vec1 = [self.x[0, cbi], self.y[0, cbi],  0.0]
+        # vec2 = [self.x[-1, cbi], self.y[-1, cbi], 0.0]
+
+        # Alternative implementation with mean over all entries within the line.
+        # -> should be a good approximation of the line center
+        # NOTE: 2019-05-30: Relaxed the criterion even further (mean of first and last 10 scan lines)
+        # vec1 = [np.nanmedian(self.x[0:10, :]), np.nanmedian(self.y[0:10, :]), 0.0]
+        # vec2 = [np.nanmedian(self.x[-11:-1, :]), np.nanmedian(self.y[-11:-1, :]), 0.0]
+        # return np.arctan((vec2[1]-vec1[1])/(vec2[0]-vec1[0]))
+
+        # Third implementation (calculate a header for each shot per line and use average)
+        n_lines, n_shots_per_line = np.shape(self.x)
+        angles = np.full((n_shots_per_line), np.nan)
+        for shot_index in np.arange(n_shots_per_line):
+            vec1 = [self.x[0, shot_index], self.y[0, shot_index],  0.0]
+            vec2 = [self.x[-1, shot_index], self.y[-1, shot_index], 0.0]
+            angles[shot_index] = np.arctan((vec2[1]-vec1[1])/(vec2[0]-vec1[0]))
+        return np.nanmean(angles)
 
 class AlsDEMCfg(object):
 
