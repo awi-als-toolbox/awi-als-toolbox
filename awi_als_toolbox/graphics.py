@@ -8,6 +8,7 @@ __author__ = "Stefan Hendricks"
 import numpy as np
 
 import cmocean
+import seaborn as sns
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -64,8 +65,6 @@ class AlsDemMap(object):
     def quickview(self):
         """ Creates a quick and dirty DEM plot using matplotlib """
 
-        import seaborn as sns
-        sns.set_context("notebook", font_scale=1.5, rc={"lines.linewidth": 1.5})
         self._plot()
         figManager = plt.get_current_fig_manager()
         try:
@@ -76,8 +75,7 @@ class AlsDemMap(object):
         plt.close(self.fig)
 
     def save_fig(self, filename, dpi=300):
-        import seaborn as sns
-        sns.set_context("talk", font_scale=1.2)
+
         self._plot()
         plt.savefig(filename, dpi=dpi)
         plt.clf()
