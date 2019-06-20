@@ -44,12 +44,23 @@ class AlsDEM(object):
         if self.cfg.gap_filter["algorithm"] != "none":
             self._gap_filter()
 
+    def get_swath_lonlat_center(self):
+        """
+        Get the center position (longitude, latitude) of the swath segment
+        :return: (float, float) lon_0, lat_0
+        """
+        # Guess projection center
+        lat_0 = np.nanmedian(self.als.latitude)
+        lon_0 = np.nanmedian(self.als.longitude)
+        return lon_0, lat_0
+
     def _proj(self):
         """ Calculate projection coordinates """
 
+        # TODO: Add option to prescribe projection
+
         # Guess projection center
-        lat_0ts = np.nanmedian(self.als.latitude)
-        lon_0 = np.nanmedian(self.als.longitude)
+        lon_0, lat_0ts = self.get_swath_lonlat_center()
 
         # Get the nan mask (joint mask of longitude & latitude)
         is_nan = np.logical_or(np.isnan(self.als.longitude), np.isnan(self.als.latitude))
