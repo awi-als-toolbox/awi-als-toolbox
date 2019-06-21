@@ -8,6 +8,7 @@ __author__ = "Stefan Hendricks"
 import numpy as np
 
 from collections import OrderedDict
+from datetime import datetime
 
 import struct
 import logging
@@ -24,6 +25,8 @@ class AirborneLaserScannerFile(object):
                                   ('amplitude', np.float32),
                                   ('reflectance', np.float32)))
 
+    # Epoch for time
+    TARGET_EPOCH = datetime(1970, 1, 1)
 
     def __init__(self, filepath, **header_kwargs):
         """
@@ -112,10 +115,6 @@ class AirborneLaserScannerFile(object):
         # Get the shape of the output array
         nlines, nshots = n_selected_lines, self.header.data_points_per_line
 
-        # Init the data output
-        als = ALSData(self.line_variables, (nlines, nshots))
-        als.set_debug_data(startbyte=startbyte, nbytes=nbytes, line_range=line_range)
-
         # Read the binary data
         bindat = np.ndarray(shape=(nlines), dtype=object)
         with open(self.filepath, 'rb') as f:
@@ -124,21 +123,41 @@ class AirborneLaserScannerFile(object):
                 bindat[i] = f.read(nbytes)
                 startbyte = np.uint64(startbyte + nbytes)
 
+        shape = (nlines, nshots)
+        timestamp = np.ndarray(shape=shape, dtype=self.line_variables["timestamp"])
+        longitude = np.ndarray(shape=shape, dtype=self.line_variables["longitude"])
+        latitude = np.ndarray(shape=shape, dtype=self.line_variables["latitude"])
+        elevation = np.ndarray(shape=shape, dtype=self.line_variables["elevation"])
+
         # Unpack the binary data
         # TODO: This is clunky, find a better way
         for i in np.arange(nlines):
             line = bindat[i]
             i0, i1 = 0, 8*nshots
-            als.timestamp[i, :] = struct.unpack(">{n}d".format(n=nshots), line[i0:i1])
+            timestamp[i, :] = struct.unpack(">{n}d".format(n=nshots), line[i0:i1])
             i0 = i1
             i1 = i0 + 8*nshots
-            als.latitude[i, :] = struct.unpack(">{n}d".format(n=nshots), line[i0:i1])
+            latitude[i, :] = struct.unpack(">{n}d".format(n=nshots), line[i0:i1])
             i0 = i1
             i1 = i0 + 8*nshots
-            als.longitude[i, :] = struct.unpack(">{n}d".format(n=nshots), line[i0:i1])
+            longitude[i, :] = struct.unpack(">{n}d".format(n=nshots), line[i0:i1])
             i0 = i1
             i1 = i0 + 8*nshots
-            als.elevation[i, :] = struct.unpack(">{n}d".format(n=nshots), line[i0:i1])
+            elevation[i, :] = struct.unpack(">{n}d".format(n=nshots), line[i0:i1])
+
+        # Convert timestamp (seconds since start of the UTC day -> seconds since 1970-01-01)
+        source_epoch = datetime(int(self.header.year), int(self.header.month), int(self.header.day))
+        time = self.timestamp2time(timestamp, source_epoch, self.TARGET_EPOCH)
+
+        # --- Create output object ---
+
+        # Save the search time (both in original units and in seconds since epoch
+        seconds = self.timestamp2time(np.array([start_seconds, end_seconds]), source_epoch, self.TARGET_EPOCH)
+        segment_window = [[seconds[0], start_seconds], [seconds[1], end_seconds]]
+
+        # Init the data container and store debug data
+        als = ALSData(time, longitude, latitude, elevation, segment_window=segment_window)
+        als.set_debug_data(startbyte=startbyte, nbytes=nbytes, line_range=line_range)
 
         # Filter invalid variables
         if sanitize:
@@ -146,6 +165,24 @@ class AirborneLaserScannerFile(object):
 
         # All done, return
         return als
+
+    @staticmethod
+    def timestamp2time(timestamp, source_epoch, target_epoch):
+        """
+        Convert the timestamp used in the ALS laserscanner files (seconds since start of the day) to
+        a more standardized one (e.g., seconds since 1970-01-01).
+        :param timestamp: time data from AWI ALS file
+        :param source_epoch: datetime object of the ALS file epoch
+        :param target_epoch: datetime object with the target epoch
+        :return: time: timestamp since target epoch
+        """
+
+        # Init the output array
+        epoch_offset_seconds = (source_epoch - target_epoch).total_seconds()
+        time = timestamp + epoch_offset_seconds
+
+        return time
+
 
     def _validate_time_range(self, start, stop):
         """ Check for oddities in the time range selection """
@@ -307,23 +344,32 @@ class ALSFileHeader(object):
 class ALSData(object):
     """ A data class container for ALS data"""
 
-    def __init__(self, vardef, shape):
+    vardef = ["time", "longitude", "latitude", "elevation"]
+
+    def __init__(self, time, lon, lat, elev, segment_window=None):
         """
         Data container for ALS data ordered in scan lines.
-        NOTE: Upon initialization this container will be empty. The content must be added directly.
-        :param filedef: (dict) Variable definition {varname: dtype, ... }
-        :param shape: The shape of the (nlines, nshots) of the data
+        :param time:
+        :param lon:
+        :param lat:
+        :param elev:
+        :param segment_window:
         """
 
-        # Store arguments
-        self.vardef = vardef
-        self.shape = shape
-
+        # Add Metadata
+        self.metadata = ALSMetadata()
         self.debug_data = {}
+        self.segment_window = segment_window
 
-        # Create the array entries
-        for key in vardef.keys():
-            setattr(self, key, np.ndarray(shape=shape, dtype=vardef[key]))
+        # save data arrays
+        # TODO: Validate shapes etc.
+        self.time = time
+        self.longitude = lon
+        self.latitude = lat
+        self.elevation = elev
+
+        # Update the metadata now with the data in place
+        self._set_metadata()
 
     def set_debug_data(self, **kwargs):
         self.debug_data.update(kwargs)
