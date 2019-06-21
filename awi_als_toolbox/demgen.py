@@ -23,6 +23,7 @@ class AlsDEM(object):
         """
 
         self.als = als
+        self.metadata = als.metadata.copy()
         if cfg is None:
             cfg = AlsDEMCfg()
         self.cfg = cfg
@@ -43,6 +44,7 @@ class AlsDEM(object):
         self._griddata()
         if self.cfg.gap_filter["algorithm"] != "none":
             self._gap_filter()
+        self._update_metadata()
 
     def get_swath_lonlat_center(self):
         """
@@ -174,6 +176,18 @@ class AlsDEM(object):
         self._align_parameters = {'center_point': (xc, yc),
                                   'angle': angle,
                                   'rotation_matrix': rot_matrix}
+
+    def _update_metadata(self):
+        """ Update the metadata object with specifics for gridded products """
+
+        # Data is now on a space-time grid
+        self.metadata.set_attribute("cdm_data_type", "grid")
+        self.metadata.set_attribute("processing_level", "Level-3 Collated (l3c)")
+        self.metadata.set_attribute("geospatial_bounds_crs", "EPSG:54026")
+        self.metadata.set_attribute("geospatial_lon_units", "m")
+        self.metadata.set_attribute("geospatial_lat_units", "m")
+        self.metadata.set_attribute("geospatial_lon_resolution", self.cfg.resolution)
+        self.metadata.set_attribute("geospatial_lat_resolution", self.cfg.resolution)
 
     @property
     def heading_prj(self):

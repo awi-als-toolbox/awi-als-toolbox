@@ -335,10 +335,37 @@ class ALSData(object):
         illegal_lat = np.where(np.abs(self.latitude) > 90.0)
         illegal_lon = np.where(np.abs(self.longitude) > 180.0)
         for illegal_values in [illegal_lat, illegal_lon]:
-            for key in self.vardef.keys():
+            for key in self.vardef:
                 var = getattr(self, key)
                 var[illegal_values] = np.nan
                 setattr(self, key, var)
+
+    def _set_metadata(self):
+        """
+        Get metadata from the data arrays
+        :return:
+        """
+
+        # Data type is fixed
+        self.metadata.set_attribute("cdm_data_type", "point")
+
+        # Compute geospatial parameters
+        lat_min, lat_max = self.lat_range
+        self.metadata.set_attribute("geospatial_lat_min", lat_min)
+        self.metadata.set_attribute("geospatial_lat_min", lat_max)
+        lon_min, lon_max = self.lat_range
+        self.metadata.set_attribute("geospatial_lon_min", lon_min)
+        self.metadata.set_attribute("geospatial_lon_min", lon_max)
+        elev_min, elev_max = self.elev_range
+        self.metadata.set_attribute("geospatial_vertical_min", elev_min)
+        self.metadata.set_attribute("geospatial_vertical_max", elev_max)
+
+        # Compute time parameters
+        tcs = datetime.utcfromtimestamp(np.nanmin(self.time))
+        tce = datetime.utcfromtimestamp(np.nanmax(self.time))
+        self.metadata.set_attribute("time_coverage_start", tcs)
+        self.metadata.set_attribute("time_coverage_end", tce)
+
 
     @property
     def dims(self):
@@ -364,3 +391,108 @@ class ALSData(object):
     def elev_range(self):
         return np.nanmin(self.elevation), np.nanmax(self.elevation)
 
+    @property
+    def has_valid_data(self):
+        """ Returns a flag whether the object contains valid elevation data """
+        return np.count_nonzero(np.isfinite(self.elevation)) > 0
+
+    @property
+    def segment_seconds(self):
+        """
+        Return the search window in seconds
+        :return: Depends on whether keyword `segment_window` was set during the initialization
+                 of the object. If yes, this property will contain the integer seconds since the
+                 start of the day that have been used to extract the segment from the ALS file.
+                 If not, a rounded version of the actual seconds of the segment will be returned
+                 This will be incorrect if data is missing on either start or end of the segment.
+        """
+        if self.segment_seconds is None:
+            return [np.floor(np.nanmin(self.time)), np.ceil(np.nanmax(self.time))]
+        else:
+            return [self.segment_window[0, 1], self.segment_window[1, 1]]
+
+    @property
+    def segment_time(self):
+        """
+        Return the search window as datetime object
+        :return: Depends on whether keyword `segment_window` was set during the initialization
+                 of the object. If yes, this property will be derived from the integer seconds
+                 that have been used to extract the segment from the ALS file. If not, a rounded
+                 version of the actual seconds will be used to estimate the time that has been
+                 used to extract the segment. This will be incorrect if data is missing on either
+                 start or end of the segment.
+        """
+        if self.segment_seconds is None:
+            return [datetime.utcfromtimestamp(np.floor(np.nanmin(self.time))),
+                    datetime.utcfromtimestamp(np.ceil(np.nanmax(self.time)))]
+        else:
+            return [datetime.utcfromtimestamp(self.segment_window[0, 0]),
+                    datetime.utcfromtimestamp(self.segment_window[1, 0])]
+
+
+class ALSMetadata(object):
+    """
+    A container for product metadata following CF/Attribute Convention for Data Discovery 1.3
+    -> http://wiki.esipfed.org/index.php/Attribute_Convention_for_Data_Discovery_1-3
+    """
+
+    ATTR_DICT = ["title", "summary", "keywords", "Conventions", "id", "naming_authority",
+                 "history", "source", "processing_level", "comment", "acknowledgement", "license",
+                 "standard_name_vocabulary", "date_created", "creator_name", "creator_url", "creator_email",
+                 "institution", "project", "publisher_name", "publisher_url","publisher_email",
+                 "geospatial_bound", "geospatial_bounds_crs", "geospatial_bounds_vertical_crs",
+                 "geospatial_lat_min",  "geospatial_lat_max", "geospatial_lon_min", "geospatial_lon_max",
+                 "geospatial_vertical_min", "geospatial_vertical_max", "time_coverage_start", "time_coverage_end",
+                 "time_coverage_duration", "time_coverage_resolution","creator_type", "creator_institution",
+                 "publisher_type", "publisher_institution", "program", "contributor_name", "contributor_role",
+                 "geospatial_lat_units", "geospatial_lat_resolution", "geospatial_lon_units",
+                 "geospatial_lon_resolution", "geospatial_vertical_units", "geospatial_vertical_resolution",
+                 "date_issued", "date_metadata_modified", "product_version", "platform", "platform_vocabulary",
+                 "instrument", "instrument_vocabulary", "cdm_data_type", "metadata_link", "references"]
+
+    def __init__(self):
+        """ Product Metadata following Attribute Convention for Data Discovery 1.3 """
+
+        # Init all attributes with None
+        for key in self.ATTR_DICT:
+            setattr(self, key, None)
+
+    def set_attributes(self, attr_dict, **kwargs):
+        """
+        Batch set metadata attributes
+        :param attr_dict: (dict) a dict of metadata attributes
+        """
+        for key in attr_dict.keys():
+            self.set_attribute(key, attr_dict[key], **kwargs)
+
+
+    def set_attribute(self, key, value, raise_on_error=True, datetime2iso8601=True):
+        """
+        Set an attribute of the metadata container.
+        :param key: (str) the name of the attribute (must be in ATTR_DICT)
+        :param value: the value of the attribute
+        :param raise_on_error: (bool) flag whether a ValueError should be raised when key is not a valid attribute
+                                      name
+        :return: None
+        """
+
+        if key in self.ATTR_DICT:
+            if isinstance(value, datetime) and datetime2iso8601:
+                value = value.isoformat()
+            setattr(self, key, value)
+        else:
+            if raise_on_error:
+                raise ValueError("invalid metadata attribute name: %s" % str(key))
+            else:
+                pass
+
+    def copy(self):
+        """ Returns a copy of the current metadata, e.g. if a derived product inherits part of the metadata """
+        cls = ALSMetadata()
+        cls.set_attributes(self.attribute_dict)
+        return cls
+
+    @property
+    def attribute_dict(self):
+        """ Returns an attribute dict (not None attributes only) """
+        return {key: getattr(self, key) for key in self.ATTR_DICT if getattr(self, key) is not None}

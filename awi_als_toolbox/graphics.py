@@ -100,6 +100,9 @@ class AlsDemMap(object):
         # Add the globe view showing position in large context
         self._plot_globe()
 
+        # Add written metadata
+        self._plot_metadata()
+
     def _plot_dem(self):
         """
         Add the DEM plot and set its style
@@ -161,6 +164,20 @@ class AlsDemMap(object):
         m.fillcontinents(color='#00ace5', lake_color='#00ace5')
         m.scatter(lon_0, lat_0, marker="x", color="#003e6e", latlon=True, zorder=100)
         m.drawmapboundary(color='#00ace5', linewidth=0.1)
+
+    def _plot_metadata(self):
+        """ Write metadata properties in the lower right corner of the plot"""
+
+        batch_metadata = [("Project", "project"),
+                          ("Platform", "platform"),
+                          ("Sensor", "sensor")]
+
+        metadata_props = dict(xycoords="figure fraction", color="#4b4b4d", fontsize=18, ha="left")
+
+        for property, attribute_name in batch_metadata:
+            attribute_value = getattr(self.dem.metadata, attribute_name)
+            plt.annotate(property, (0.55, 0.3), **metadata_props)
+            plt.annotate(attribute_value, (0.65, 0.3), **metadata_props)
 
 
     def _scale_axes(self):
