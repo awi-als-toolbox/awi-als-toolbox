@@ -72,7 +72,8 @@ class AlsDEM(object):
         lat[nan_mask] = lat_0ts
 
         # get projection coordinates
-        self._proj_parameters = dict(proj='stere', lat_ts=lat_0ts, lat_0=lat_0ts, lon_0=lon_0)
+        self._proj_parameters = dict(proj='stere', lat_ts=lat_0ts, lat_0=lat_0ts, lon_0=lon_0,
+                                     ellps="WGS84")
         p = Proj(**self._proj_parameters)
         self.x, self.y = p(lon, lat)
 
