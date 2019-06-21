@@ -34,7 +34,6 @@ class AlsDEM(object):
         dem_z_masked[self.dem_mask] = np.nan
         return dem_z_masked
 
-
     def create(self):
         """ Grids irregular laser scanner points to regular grid """
         # TODO: Properly validate data

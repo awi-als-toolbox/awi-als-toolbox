@@ -40,8 +40,7 @@ class AirborneLaserScannerFile(object):
             als = alsfile.get_data(start, stop)
 
         :param filepath: (str) The path of the AWI ALS file
-
-        :param header_kwargs: Keywords for the header parsing class (
+        :param header_kwargs: Keywords for the header parsing class
         """
 
         # Store Parameter
@@ -200,7 +199,6 @@ class AirborneLaserScannerFile(object):
 
         # Raise Warnings
         if start < fstart:
-            # TODO: Use logging
             logging.warning("start time {start} before actual start of file {fstart}".format(start=start, fstart=fstart))
         if stop > fstop:
             logging.warning("stop time {stop} after actual end of file {fstop}".format(stop=stop, fstop=fstop))
