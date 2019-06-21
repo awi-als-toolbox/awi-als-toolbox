@@ -53,7 +53,7 @@ class AlsDemMap(object):
         :return:  None
         """
 
-        self._plot()
+        self._create_figure()
         figManager = plt.get_current_fig_manager()
         try:
             figManager.window.showMaximized()
