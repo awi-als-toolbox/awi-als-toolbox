@@ -13,6 +13,8 @@ from datetime import datetime
 import struct
 import logging
 
+from awi_als_toolbox.data import ALSData
+
 
 class AirborneLaserScannerFile(object):
     """ Class to retrieve data from a AWI ALS binary data file """
