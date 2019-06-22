@@ -19,6 +19,12 @@ from mpl_toolkits.basemap import Basemap
 
 class AlsDemMap(object):
 
+    # --- Target Colors ---
+    # AWI eisblau #00ace5
+    # AWI tiefblau #003e6e
+    # AWI grau 1 #4b4b4d
+    # AWI grau 2 #bcbdbf
+
     def __init__(self, dem, cfg=None, logo_path=None):
         """
         Object for creating plots (interactive, or png output) from gridded ALS DEM's
@@ -39,9 +45,10 @@ class AlsDemMap(object):
 
         # Logo path (experimental)
         self.logo_path = logo_path
+        self.map_extent = None
 
-        # TODO: Either compute this value or add to config
-        self.grid_spacing = 100
+        # Switch default font to Arial
+        mpl.rcParams['font.sans-serif'] = "arial"
 
         # Basic setup of the figure
         self._init_figure()
@@ -124,15 +131,28 @@ class AlsDemMap(object):
         self.ax_dem.set_facecolor("0.0")
 
         # --- Axes Style ---
-        self.ax_dem.xaxis.set_major_locator(ticker.MultipleLocator(self.grid_spacing))
-        self.ax_dem.yaxis.set_major_locator(ticker.MultipleLocator(self.grid_spacing))
+        major, minor = self._get_tick_spacing()
+        self.ax_dem.tick_params(which='major', length=8)
+        self.ax_dem.tick_params(which='minor', length=4)
+        self.ax_dem.xaxis.set_ticks_position('both')
+        self.ax_dem.yaxis.set_ticks_position('both')
+        self.ax_dem.xaxis.set_major_locator(ticker.MultipleLocator(major))
+        self.ax_dem.yaxis.set_major_locator(ticker.MultipleLocator(major))
+        self.ax_dem.xaxis.set_minor_locator(ticker.MultipleLocator(minor))
+        self.ax_dem.yaxis.set_minor_locator(ticker.MultipleLocator(minor))
 
         self.ax_dem.set_aspect('equal')
-        self.ax_dem.xaxis.label.set_color('0.5')
+
         self.ax_dem.set_xlabel(self.cfg.get_label("xaxis"))
-        self.ax_dem.yaxis.label.set_color('0.5')
         self.ax_dem.set_ylabel(self.cfg.get_label("yaxis"))
-        self.ax_dem.tick_params(axis='both', colors='0.5')
+        for target in ["xaxis", "yaxis"]:
+            ax = getattr(self.ax_dem, target)
+            ax.label.set_color("#4b4b4d")
+            ax.label.set_fontsize(14)
+
+        self.ax_dem.tick_params(axis='both', which="both",                      # Targets (both axis, minor+major)
+                                color="#bcbdbf", direction="in", width=1,       # tick props
+                                labelcolor="#4b4b4d", labelsize=14, pad=6)      # label props
 
     def _plot_cb(self):
         """
@@ -145,18 +165,15 @@ class AlsDemMap(object):
         # Plot the colorbar
         norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
         cb1 = mpl.colorbar.ColorbarBase(self.ax_cmap, cmap=self.cfg.cmap, norm=norm, orientation='horizontal')
-        cb1.set_label(self.cfg.get_label("zaxis"))
+        cb1.set_label(self.cfg.get_label("zaxis"), fontsize=16, color="#4b4b4d")
+        self.ax_cmap.tick_params(axis='both', color="#bcbdbf", labelcolor="#4b4b4d", labelsize=14)
+
 
     def _plot_globe(self):
         """
         Add an orthographic/full globe view with the marked position of the DEM segment
         :return:
         """
-
-        # AWI eisblau #00ace5
-        # AWI tiefblau #003e6e
-        # AWI grau 1 #4b4b4d
-        # AWI grau 2 #bcbdbf
 
         # Get projection center from DEM
         lon_0, lat_0 = self.dem.get_swath_lonlat_center()
@@ -173,12 +190,20 @@ class AlsDemMap(object):
                           ("Sensor", "sensor")]
 
         metadata_props = dict(xycoords="figure fraction", color="#4b4b4d", fontsize=18, ha="left")
+    def _get_tick_spacing(self):
+        """
+        Return the spacing for ticks (major and minor ticks) in axis units (m)
+        :return: major, minor
+        """
+        max_side_len = self.dem.max_side_len
 
-        for property, attribute_name in batch_metadata:
-            attribute_value = getattr(self.dem.metadata, attribute_name)
-            plt.annotate(property, (0.55, 0.3), **metadata_props)
-            plt.annotate(attribute_value, (0.65, 0.3), **metadata_props)
+        major, minor = 50, 25
+        if max_side_len > 500.:
+            major, minor = 100, 50
+        elif max_side_len > 1000.:
+            major, minor = 200, 100
 
+        return major, minor
 
     def _scale_axes(self):
         """
