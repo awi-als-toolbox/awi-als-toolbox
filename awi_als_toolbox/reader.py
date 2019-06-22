@@ -145,13 +145,12 @@ class AirborneLaserScannerFile(object):
             elevation[i, :] = struct.unpack(">{n}d".format(n=nshots), line[i0:i1])
 
         # Convert timestamp (seconds since start of the UTC day -> seconds since 1970-01-01)
-        source_epoch = datetime(int(self.header.year), int(self.header.month), int(self.header.day))
-        time = self.timestamp2time(timestamp, source_epoch, self.TARGET_EPOCH)
+        time = self.timestamp2time(timestamp)
 
         # --- Create output object ---
 
         # Save the search time (both in original units and in seconds since epoch
-        seconds = self.timestamp2time(np.array([start_seconds, end_seconds]), source_epoch, self.TARGET_EPOCH)
+        seconds = self.timestamp2time(np.array([start_seconds, end_seconds]))
         segment_window = [[seconds[0], start_seconds], [seconds[1], end_seconds]]
 
         # Init the data container and store debug data
@@ -165,8 +164,7 @@ class AirborneLaserScannerFile(object):
         # All done, return
         return als
 
-    @staticmethod
-    def timestamp2time(timestamp, source_epoch, target_epoch):
+    def timestamp2time(self, timestamp):
         """
         Convert the timestamp used in the ALS laserscanner files (seconds since start of the day) to
         a more standardized one (e.g., seconds since 1970-01-01).
@@ -177,7 +175,7 @@ class AirborneLaserScannerFile(object):
         """
 
         # Init the output array
-        epoch_offset_seconds = (source_epoch - target_epoch).total_seconds()
+        epoch_offset_seconds = (self.source_epoch - self.TARGET_EPOCH).total_seconds()
         time = timestamp + epoch_offset_seconds
 
         return time
@@ -243,6 +241,15 @@ class AirborneLaserScannerFile(object):
             data = f.read(self.header.bytes_sec_line)
         struct_def = ">{scan_lines}L".format(scan_lines=self.header.scan_lines)
         self.line_timestamp = np.array(struct.unpack(struct_def, data))
+
+    @property
+    def source_epoch(self):
+        """
+        Return the epoch for the time definition in the ALS files (start of UTC day)
+        :return: datetime
+        """
+        return datetime(int(self.header.year), int(self.header.month), int(self.header.day))
+
 
 
 class ALSFileHeader(object):
