@@ -216,6 +216,18 @@ class AlsDEM(object):
         # Angles are with respect to positive x-axis
         # Assumption positive y is north -> reference to positive y
         return 0.5*np.pi-np.nanmean(angles)
+
+    @property
+    def max_side_len(self):
+        """
+        Computes the maximum from [width, height] of the gridded DEM
+        :return:
+        """
+
+        height = np.nanmax(self.dem_y) - np.nanmax(self.dem_y)
+        width = np.nanmax(self.dem_x) - np.nanmax(self.dem_x)
+
+        return np.nanmax([height, width])
 class AlsDEMCfg(object):
 
     def __init__(self, resolution=None, align_heading=None, griddata=None, gap_filter=None, grid_pad_fraction=None,
