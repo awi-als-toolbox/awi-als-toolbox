@@ -3,7 +3,7 @@
 """
 """
 
-__all__ = ["export", "demgen", "graphics", "reader", "utils"]
+__all__ = ["export", "data", "demgen", "graphics", "reader", "utils"]
 
 import os
 import sys
