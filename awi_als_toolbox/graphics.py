@@ -225,11 +225,33 @@ class AlsDemMap(object):
     def _plot_metadata(self):
         """ Write metadata properties in the lower right corner of the plot"""
 
-        batch_metadata = [("Project", "project"),
-                          ("Platform", "platform"),
-                          ("Sensor", "sensor")]
+        fmt = "%s UTC (%g)"
+        datetime_format = ("%Y-%m-%d %H:%M:%S")
+        segment_start_label = fmt % (self.dem.als.tcs_segment_datetime.strftime(datetime_format),
+                                     self.dem.als.tcs_segment_seconds)
+        segment_end_label = fmt % (self.dem.als.tce_segment_datetime.strftime(datetime_format),
+                                   self.dem.als.tce_segment_seconds)
 
-        metadata_props = dict(xycoords="figure fraction", color="#4b4b4d", fontsize=18, ha="left")
+        batch_metadata = [("Project", getattr(self.dem.metadata, "project")),
+                          ("Platform", getattr(self.dem.metadata, "platform")),
+                          ("Instrument", getattr(self.dem.metadata, "instrument")),
+                          ("Segment Start", segment_start_label),
+                          ("Segment End", segment_end_label)]
+
+        metadata_props = dict(xycoords="figure fraction", color="#4b4b4d", fontsize=16, ha="left")
+
+        xval, yval = 0.6, 0.25
+        for property, attribute_value in batch_metadata:
+            plt.annotate(property, (xval, yval), **metadata_props)
+            plt.annotate(attribute_value, (xval+0.1, yval), **metadata_props)
+            yval -= 0.04
+
+        bbox = self.ax_dem.bbox
+        x0, y0 = self.fig.transFigure.inverted().transform(bbox.p0)
+        label_props = dict(xycoords="figure fraction", color="#bcbdbf", fontsize=12, ha="left")
+        resolution_label = "DEM resolution: %.2f m" % self.dem.resolution
+        plt.annotate(resolution_label, (x0+0.015, y0+0.1), **label_props)
+
     def _get_tick_spacing(self):
         """
         Return the spacing for ticks (major and minor ticks) in axis units (m)
