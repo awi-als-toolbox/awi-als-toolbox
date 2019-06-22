@@ -181,9 +181,18 @@ class AlsDemMap(object):
 
         # Get projection center from DEM
         lon_0, lat_0 = self.dem.get_swath_lonlat_center()
+
+        # Plot the map
         m = Basemap(ax=self.ax_globe, projection='ortho', lon_0=lon_0, lat_0=lat_0, resolution='i')
         m.fillcontinents(color='#00ace5', lake_color='#00ace5')
-        m.scatter(lon_0, lat_0, marker="x", color="#003e6e", latlon=True, zorder=100)
+        if self.map_extent is None:
+            m.scatter(lon_0, lat_0, marker="x", color="#003e6e", latlon=True, zorder=100)
+        else:
+            [lon_min, lat_min, lon_max, lat_max] = self.map_extent
+            x = [lon_min, lon_max, lon_max, lon_min, lon_min]
+            y = [lat_min, lat_min, lat_max, lat_max, lat_min]
+            m.plot(x, y, color="#003e6e", lw=1, latlon=True, zorder=100)
+
         m.drawmapboundary(color='#00ace5', linewidth=0.1)
 
 
