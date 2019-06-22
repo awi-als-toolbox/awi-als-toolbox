@@ -231,7 +231,7 @@ class AirborneLaserScannerFile(object):
         # Get the number of lines
         line_range = [
             np.where(self.line_timestamp >= start_seconds)[0][0],
-            np.where(self.line_timestamp <= end_seconds)[0][-1]]
+            np.where(self.line_timestamp < end_seconds)[0][-1]]
         n_selected_lines = line_range[1] - line_range[0]
 
         return line_range, n_selected_lines
