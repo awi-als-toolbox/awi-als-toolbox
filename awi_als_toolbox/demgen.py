@@ -228,6 +228,16 @@ class AlsDEM(object):
         width = np.nanmax(self.dem_x) - np.nanmax(self.dem_x)
 
         return np.nanmax([height, width])
+
+    @property
+    def resolution(self):
+        """
+        The resolution of the DEM in meters
+        :return:
+        """
+        return self.cfg.resolution
+
+
 class AlsDEMCfg(object):
 
     def __init__(self, resolution=None, align_heading=None, griddata=None, gap_filter=None, grid_pad_fraction=None,
