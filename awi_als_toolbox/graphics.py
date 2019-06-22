@@ -7,6 +7,7 @@ __author__ = "Stefan Hendricks"
 import numpy as np
 
 import cmocean
+import pyproj
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -104,6 +105,9 @@ class AlsDemMap(object):
         # Add the colorbar
         self._plot_cb()
 
+        # Add a flight track
+        self._plot_flight_track()
+
         # Add the globe view showing position in large context
         self._plot_globe()
 
@@ -181,6 +185,33 @@ class AlsDemMap(object):
         m.fillcontinents(color='#00ace5', lake_color='#00ace5')
         m.scatter(lon_0, lat_0, marker="x", color="#003e6e", latlon=True, zorder=100)
         m.drawmapboundary(color='#00ace5', linewidth=0.1)
+
+
+    def _plot_flight_track(self):
+        """
+        Add an orthographic/full globe view with the marked position of the DEM segment
+        :return:
+        """
+        # Get projection center from DEM
+        lons, lats = self.dem.als.flightdata.get_lonlats()
+        basemap_args = get_basemap_args_from_positions(lons, lats)
+
+        # Get subset of laserscanner DEM
+        subset = self.dem.als.get_flightdata_segment_subset()
+
+        # Plot the map
+        m = Basemap(ax=self.ax_map, **basemap_args)
+        m.fillcontinents(color='#00ace5', lake_color='#00ace5')
+        m.plot(lons, lats, lw=1, color="#bcbdbf", latlon=True, zorder=100)
+        m.plot(subset.lon, subset.lat, lw=5, color="#003e6e", latlon=True, zorder=101)
+        m.drawmapboundary(color='#00ace5', linewidth=1)
+
+        # Save the axis limits
+        data_extent = self.ax_map.dataLim.extents
+        lon_min, lat_min = m(data_extent[0], data_extent[1], inverse=True)
+        lon_max, lat_max = m(data_extent[2], data_extent[3], inverse=True)
+        self.map_extent = [lon_min, lat_min, lon_max, lat_max]
+
 
     def _plot_metadata(self):
         """ Write metadata properties in the lower right corner of the plot"""
@@ -450,3 +481,33 @@ def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
         'trunc({n},{a:.2f},{b:.2f})'.format(n=cmap.name, a=minval, b=maxval),
         cmap(np.linspace(minval, maxval, n)))
     return new_cmap
+
+def get_basemap_args_from_positions(longitude, latitude, aspect=1, scale=1.1, res='h'):
+    """
+    Get basemap parameters that display the given positions
+    in a stereographic map with a given aspect (map width to map height) and
+    a scale (1 = no padding)
+    """
+    lon_0 = np.mean([np.nanmin(longitude), np.nanmax(longitude)])
+    lat_0 = np.mean([np.nanmin(latitude), np.nanmax(latitude)])
+    p = pyproj.Proj(proj='stere', lon_0=lon_0, lat_0=lat_0, ellps='WGS84')
+    x, y = p(longitude, latitude)
+    width_r = scale*(np.nanmax(x)-np.nanmin(x))
+    height_r = scale*(np.nanmax(y)-np.nanmin(y))
+    maxval = np.amax([width_r, height_r])
+    # Get the edges
+    width = maxval
+    height = maxval
+    if aspect > 1:
+        width *= aspect
+    if aspect < 1:
+        height *= aspect
+
+    basemap_kwargs = {'projection': 'stere',
+                      'width': width,
+                      'height': height,
+                      'lon_0': lon_0,
+                      'lat_0': lat_0,
+                      'lat_ts': lat_0,
+                      'resolution': res}
+    return basemap_kwargs
