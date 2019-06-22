@@ -149,8 +149,9 @@ class AlsDEM(object):
         shape = np.shape(self.x)
 
         # Get the rotation angle
-        # NOTE in this case the aircraft is moving from left to right
-        angle = -1.0*self.heading_prj
+        # NOTE: Heading describes the angle w.r.t. to the positive y-axis in projection coordinates
+        #       We want to rotate the points that aircraft heading is rotated to heading 90 -> positive x-axis
+        angle = self.heading_prj - 0.5*np.pi
 
         # validity check -> Do not rotate if angle is nan
         if np.isnan(angle):
@@ -208,11 +209,13 @@ class AlsDEM(object):
         n_lines, n_shots_per_line = np.shape(self.x)
         angles = np.full((n_shots_per_line), np.nan)
         for shot_index in np.arange(n_shots_per_line):
-            vec1 = [self.x[0, shot_index], self.y[0, shot_index],  0.0]
-            vec2 = [self.x[-1, shot_index], self.y[-1, shot_index], 0.0]
-            angles[shot_index] = np.arctan((vec2[1]-vec1[1])/(vec2[0]-vec1[0]))
-        return np.nanmean(angles)
+            p0 = [self.x[0, shot_index], self.y[0, shot_index]]
+            p1 = [self.x[-1, shot_index], self.y[-1, shot_index]]
+            angles[shot_index] = np.arctan2((p1[1]-p0[1]), (p1[0]-p0[0]))
 
+        # Angles are with respect to positive x-axis
+        # Assumption positive y is north -> reference to positive y
+        return 0.5*np.pi-np.nanmean(angles)
 class AlsDEMCfg(object):
 
     def __init__(self, resolution=None, align_heading=None, griddata=None, gap_filter=None, grid_pad_fraction=None,
