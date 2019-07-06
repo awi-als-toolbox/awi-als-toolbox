@@ -119,6 +119,8 @@ class AlsDEM(object):
         self.dem_z = np.ma.array(self.dem_z)
         self.dem_mask = np.zeros(self.dem_z.shape, dtype=np.bool)
 
+        # Compute lons, lats for grid
+        self.lon, self.lat = self.p(self.dem_x, self.dem_y, inverse=True)
     def _gap_filter(self):
         """
         Remove interpolation results in areas where no als data is available
