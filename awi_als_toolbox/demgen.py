@@ -279,8 +279,8 @@ class AlsDEM(object):
 
 class AlsDEMCfg(object):
 
-    def __init__(self, resolution=None, align_heading=None, griddata=None, gap_filter=None, grid_pad_fraction=None,
-                 segment_len_secs=None):
+    def __init__(self, resolution=1.0, method="default", gap_filter="default", grid_pad_fraction=0.01,
+                 segment_len_secs=20.0, projection="auto"):
         """
         Filter settings for DEM generation
         :param resolution:
@@ -293,38 +293,31 @@ class AlsDEMCfg(object):
         # --- Set Default settings ---
 
         # DEM resolution in meter
-        if resolution is None:
-            resolution = 1.0
         self._resolution = resolution
 
-        # Align heading (on be default)
-        # TODO: Allow to specify target direction
-        if align_heading is None:
-            align_heading = True
-        self._align_heading = align_heading
-
         # Properties for data gridding
-        if griddata is None:
-            griddata = dict(algorithm="scipy.griddata", keyw=dict(method="linear", rescale=True))
-        self._griddata = griddata
+        if method == "default":
+            method = dict(algorithm="scipy.griddata", keyw=dict(method="linear", rescale=True))
+        self._griddata = method
 
         # Method do properly handle data gaps after gridding
-        if gap_filter is None:
+        if gap_filter == "default":
             gap_filter = dict(algorithm="maximum_filter", keyw=dict(size=3, mode="nearest"))
         self._gap_filter = gap_filter
 
         # Padding of the grid extent
-        if grid_pad_fraction is None:
-            grid_pad_fraction = 0.01
         self._grid_pad_fraction = grid_pad_fraction
 
         # Standard length of segments
-        if segment_len_secs is None:
-            segment_len_secs = 20.0
         self._segment_len_secs = segment_len_secs
 
+        # Projection information
+        # default is "auto", meaning that the projection will be estimated from the point cloud.
+        # Else, needs to be a dictionary with valid input for pyproj.Proj
+        self.projection = projection
+
     @classmethod
-    def preset(cls, mode):
+    def preset(cls, mode, **kwargs):
         """
         Return defined presets for data gridding
         :param mode: (str) Name of the mode (currently only `sea_ice_low`)
