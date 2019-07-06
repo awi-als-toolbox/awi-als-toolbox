@@ -365,7 +365,6 @@ class AlsDEMCfg(object):
         # -> high latitude resolution
         if str(mode) == "sea_ice_low":
             keyw = dict(resolution=0.25, segment_len_secs=60)
-            cfg = cls(resolution=0.25, segment_len_secs=10, **kwargs)
 
         # High altitude (> 1500 ft) sea ice surveys
         # -> default settings
