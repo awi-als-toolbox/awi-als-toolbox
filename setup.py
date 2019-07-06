@@ -25,11 +25,11 @@ with open("requirements.txt") as f:
 setup(
     name='awi-als-toolbox',
     version=version,
-    description='python sea ice radar altimetry processing library',
+    description='python toolbox to parse and process airborne laserscanner (ALS) binary data files from the Alfred Wegener Institute (AWI) ',
     long_description=readme,
     author='Stefan Hendricks',
     author_email='stefan.hendricks@awi.de',
-    url='https://github.com/shendric/pysiral',
+    url='https://github.com/shendric/awi-als-toolbox',
     license=license,
     install_requires=requirements,
     packages=find_packages(exclude=('tests', 'docs')),
