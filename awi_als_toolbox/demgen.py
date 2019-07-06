@@ -238,6 +238,44 @@ class AlsDEM(object):
         """
         return self.cfg.resolution
 
+    @property
+    def fn_proc_level(self):
+        """
+        A filename compatible processing level str
+        :return: str
+        """
+        for proc_level_id in ["l3c", "l4"]:
+            if proc_level_id in self.processing_level:
+                return proc_level_id
+        return ""
+
+    @property
+    def fn_res(self):
+        """
+        A filename compatible resolution str
+        :return: str
+        """
+        res_str = "%.2fm" % self.resolution
+        res_str = res_str.replace(".", "p")
+        return res_str
+
+    @property
+    def fn_tcs(self):
+        """
+        A filename compatible time coverage start str
+        :return: str
+        """
+        datetime_format = ("%Y%m%dT%H%M%S")
+        return self.als.tcs_segment_datetime.strftime(datetime_format)
+
+    @property
+    def fn_tce(self):
+        """
+        A filename compatible time coverage end str
+        :return: str
+        """
+        datetime_format = ("%Y%m%dT%H%M%S")
+        return self.als.tce_segment_datetime.strftime(datetime_format)
 
 class AlsDEMCfg(object):
 
