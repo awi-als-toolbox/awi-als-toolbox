@@ -101,9 +101,9 @@ class AlsDEM(object):
         ymax = np.ceil(ymax + pad)
 
         # Create Grid and no data mask
-        self.lrx = np.arange(xmin, xmax+res, res)
-        self.lry = np.arange(ymin, ymax+res, res)
-        self.dem_x, self.dem_y = np.meshgrid(self.lrx, self.lry)
+        self.xc = np.arange(xmin, xmax+res, res)
+        self.yc = np.arange(ymin, ymax+res, res)
+        self.dem_x, self.dem_y = np.meshgrid(self.xc, self.yc)
         self.nonan = np.where(np.logical_or(np.isfinite(self.x), np.isfinite(self.y)))
 
         # Create regular grid
