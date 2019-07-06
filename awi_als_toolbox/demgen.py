@@ -38,10 +38,25 @@ class AlsDEM(object):
     def create(self):
         """ Grids irregular laser scanner points to regular grid """
         # TODO: Properly validate data
+
+        # Project lon/lat coordinates of shots into cartesian coordinate system
         self._proj()
+
+        # if self.cfg.align_heading:
+        #     self._align()
+
+        # Grid all shots
         self._griddata()
+
+        # Create grid statistics
+        self._grid_statistics()
+
+        # Interpolate gaps
+        # NOTE: This procedure raises the processing level from 3 to 4
         if self.cfg.gap_filter["algorithm"] != "none":
             self._gap_filter()
+
+        # Manage metadata
         self._update_metadata()
 
     def get_swath_lonlat_center(self):
