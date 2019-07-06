@@ -136,21 +136,29 @@ class AlsDEM(object):
 
         # Compute lons, lats for grid
         self.lon, self.lat = self.p(self.dem_x, self.dem_y, inverse=True)
+
+    def _grid_statistics(self):
+        """ Compute grid statistics (Currently number of shots per grid cell only"""
+
+        res = self.cfg.resolution
+        xedges = np.linspace(self.xc[0]-res/2., self.xc[-1]+res/2.0, len(self.xc)+1)
+        yedges = np.linspace(self.yc[0]-res/2., self.yc[-1]+res/2.0, len(self.yc)+1)
+
+        # Calculates point density of als shots per DEM grid cell
+        rzhist, xe, ye = np.histogram2d(self.x[self.nonan].flatten(),
+                                        self.y[self.nonan].flatten(),
+                                        bins=[xedges, yedges])
+        self.n_shots = rzhist.transpose()
+
     def _gap_filter(self):
         """
         Remove interpolation results in areas where no als data is available
         but which are in the concex hull of the swath
         """
-        res = self.cfg.resolution
-        xedges = np.linspace(self.lrx[0]-res/2., self.lrx[-1]+res/2.0, len(self.lrx)+1)
-        yedges = np.linspace(self.lry[0]-res/2., self.lry[-1]+res/2.0, len(self.lry)+1)
 
-        # Calculates point density of als shots per DEM grid cell
-        self.rzhist, xe, ye = np.histogram2d(self.x[self.nonan].flatten(),
-                                             self.y[self.nonan].flatten(),
-                                             bins=[xedges, yedges])
-        self.rzhist = self.rzhist.transpose()
-        data_mask = self.rzhist > 0.0
+        self.processing_level = "Level-4 (l4)"
+
+        data_mask = self.n_shots > 0.0
 
         filter_algorithm = self.cfg.gap_filter["algorithm"]
         if filter_algorithm == "maximum_filter":
