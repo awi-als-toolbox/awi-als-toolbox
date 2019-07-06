@@ -24,6 +24,7 @@ class AlsDEM(object):
 
         self.als = als
         self.metadata = als.metadata.copy()
+        self.processing_level = "Level-3 Collated (l3c)"
         if cfg is None:
             cfg = AlsDEMCfg()
         self.cfg = cfg
@@ -181,7 +182,7 @@ class AlsDEM(object):
 
         # Data is now on a space-time grid
         self.metadata.set_attribute("cdm_data_type", "grid")
-        self.metadata.set_attribute("processing_level", "Level-3 Collated (l3c)")
+        self.metadata.set_attribute("processing_level", self.processing_level)
         self.metadata.set_attribute("geospatial_bounds_crs", "EPSG:54026")
         self.metadata.set_attribute("geospatial_lon_units", "m")
         self.metadata.set_attribute("geospatial_lat_units", "m")
