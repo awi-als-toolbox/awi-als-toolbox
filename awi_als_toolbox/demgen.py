@@ -303,6 +303,15 @@ class AlsDEM(object):
         datetime_format = ("%Y%m%dT%H%M%S")
         return self.als.tce_segment_datetime.strftime(datetime_format)
 
+    @property
+    def ref_time(self):
+        return self.als.ref_time
+
+    @property
+    def time_bnds(self):
+        return self.als.time_bnds
+
+
 class AlsDEMCfg(object):
 
     def __init__(self, resolution=1.0, method="default", gap_filter="default", grid_pad_fraction=0.01,

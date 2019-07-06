@@ -54,7 +54,11 @@ class AlsDEMNetCDF(object):
                                         attrs=metadata.get_var_attrs("lat"))}
 
         # Collect all coords
-        coords = {"xc": xr.Variable(("xc"), self.dem.xc.astype(np.float32),
+        coords = {"time": xr.Variable(("time"), [self.dem.ref_time],
+                                      attrs=metadata.get_var_attrs("time")),
+                  "time_bnds": xr.Variable(("time_bnds"), self.dem.time_bnds,
+                                      attrs=metadata.get_var_attrs("time_bnds")),
+                  "xc": xr.Variable(("xc"), self.dem.xc.astype(np.float32),
                                     attrs=metadata.get_var_attrs("xc")),
                   "yc": xr.Variable(("yc"), self.dem.yc.astype(np.float32),
                                     attrs=metadata.get_var_attrs("yc"))}

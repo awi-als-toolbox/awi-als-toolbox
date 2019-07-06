@@ -156,6 +156,16 @@ class ALSData(object):
                 datetime.utcfromtimestamp(self.tce_segment_time)]
 
     @property
+    def ref_time(self):
+        tcs, tce = self.tcs_segment_time, self.tce_segment_time
+        return tcs + 0.5*(tce-tcs)
+
+    @property
+    def time_bnds(self):
+        tcs, tce = self.tcs_segment_time, self.tce_segment_time
+        return [tcs, tce]
+
+    @property
     def tcs_segment_time(self):
         """
         Return the segment start time in seconds since epoch
