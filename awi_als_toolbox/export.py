@@ -53,6 +53,11 @@ class AlsDEMNetCDF(object):
                      "lat": xr.Variable(coord_dims, self.dem.lat.astype(np.float32),
                                         attrs=metadata.get_var_attrs("lat"))}
 
+        # Add grid mapping
+        grid_mapping_name, grid_mapping_attrs = self.dem.grid_mapping_items
+        if grid_mapping_name is not None:
+            data_vars[grid_mapping_name] = xr.Variable(("grid_mapping"), [0], attrs=grid_mapping_attrs)
+
         # Collect all coords
         coords = {"time": xr.Variable(("time"), [self.dem.ref_time],
                                       attrs=metadata.get_var_attrs("time")),

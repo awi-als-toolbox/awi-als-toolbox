@@ -311,11 +311,18 @@ class AlsDEM(object):
     def time_bnds(self):
         return self.als.time_bnds
 
+    @property
+    def grid_mapping_items(self):
+        name, attrs = None, {}
+        if self.cfg.grid_mapping is not None:
+            name, attrs = self.cfg.grid_mapping["name"], self.cfg.grid_mapping["attrs"]
+        return name, attrs
+
 
 class AlsDEMCfg(object):
 
     def __init__(self, resolution=1.0, method="default", gap_filter="default", grid_pad_fraction=0.01,
-                 segment_len_secs=20.0, projection="auto"):
+                 segment_len_secs=20.0, projection="auto", grid_mapping=None):
         """
         Filter settings for DEM generation
         :param resolution:
