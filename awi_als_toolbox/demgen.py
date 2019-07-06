@@ -358,6 +358,10 @@ class AlsDEMCfg(object):
         # Else, needs to be a dictionary with valid input for pyproj.Proj
         self.projection = projection
 
+        # Grid Mapping
+        # same information as projection, but in a format for netCDF grid mapping variable
+        self.grid_mapping = grid_mapping
+
     @classmethod
     def preset(cls, mode, **kwargs):
         """
