@@ -300,6 +300,10 @@ class ALSMetadata(object):
         """ Returns an attribute dict (not None attributes only) """
         return {key: getattr(self, key) for key in self.ATTR_DICT if getattr(self, key) is not None}
 
+    @property
+    def items(self):
+        return self.attribute_dict.items()
+
 
 class FlightGPSData(object):
 
