@@ -1,5 +1,6 @@
 basemap
 cmocean
+netcdf4
 matplotlib
 numpy
 pyproj
