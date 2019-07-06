@@ -243,14 +243,30 @@ class ALSMetadata(object):
         for key in self.ATTR_DICT:
             setattr(self, key, None)
 
-    def set_attributes(self, attr_dict, **kwargs):
+        # Init variable attr dict
+        # (contains variable attributes as a dictionary of variable name)
+        self.var_attrs = {}
+
+    def get_var_attrs(self, variable_name):
+        """
+        Retrieves a dictionary of variable attributes
+        :param variable_name: The name of the variable
+        :return: dictionary (empty of no definition found)
+        """
+        return self.var_attrs.get(variable_name, {})
+
+    def set_attributes(self, global_attrs, **kwargs):
         """
         Batch set metadata attributes
         :param attr_dict: (dict) a dict of metadata attributes
         """
-        for key in attr_dict.keys():
-            self.set_attribute(key, attr_dict[key], **kwargs)
 
+        for key in global_attrs.keys():
+            self.set_attribute(key, global_attrs[key], **kwargs)
+
+    def set_variable_attributes(self, variable_attrs):
+        """ Set the dictionary for variable attributes """
+        self.var_attrs.update(variable_attrs)
 
     def set_attribute(self, key, value, raise_on_error=True, datetime2iso8601=True):
         """
@@ -276,6 +292,7 @@ class ALSMetadata(object):
         """ Returns a copy of the current metadata, e.g. if a derived product inherits part of the metadata """
         cls = ALSMetadata()
         cls.set_attributes(self.attribute_dict)
+        cls.set_variable_attributes(self.var_attrs)
         return cls
 
     @property
