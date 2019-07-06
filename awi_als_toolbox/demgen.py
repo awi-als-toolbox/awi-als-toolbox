@@ -39,8 +39,6 @@ class AlsDEM(object):
         """ Grids irregular laser scanner points to regular grid """
         # TODO: Properly validate data
         self._proj()
-        if self.cfg.align_heading:
-            self._align()
         self._griddata()
         if self.cfg.gap_filter["algorithm"] != "none":
             self._gap_filter()
