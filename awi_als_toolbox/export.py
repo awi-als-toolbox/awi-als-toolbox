@@ -44,7 +44,7 @@ class AlsDEMNetCDF(object):
         metadata = self.dem.metadata
 
         # Collect all data vars
-        data_vars = {"freeboard": xr.Variable(grid_dims, self.dem.dem_z.astype(np.float32),
+        data_vars = {"freeboard": xr.Variable(grid_dims, self.dem.dem_z_masked.astype(np.float32),
                                               attrs=metadata.get_var_attrs("freeboard")),
                      "n_points": xr.Variable(grid_dims, self.dem.n_shots.astype(np.int16),
                                              attrs=metadata.get_var_attrs("n_points")),
