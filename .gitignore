@@ -103,3 +103,5 @@ venv.bak/
 # mypy
 .mypy_cache/
 *.png
+ALS_L1B*
+.idea/
