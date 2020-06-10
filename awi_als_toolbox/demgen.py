@@ -382,6 +382,11 @@ class AlsDEMCfg(object):
         elif str(mode) == "sea_ice_high":
             keyw = dict(resolution=0.5, segment_len_secs=60)
 
+        # High altitude (> 1500 ft) sea ice surveys
+        # -> default settings
+        elif str(mode) == "mosaic_standard":
+            keyw = dict(resolution=0.5, segment_len_secs=30)
+
         else:
             msg = "Unknown preset: %s (known presets: %s)" % (str(mode), ",".join(valid_presets))
             raise ValueError(msg)

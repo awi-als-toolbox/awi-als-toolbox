@@ -99,7 +99,6 @@ class ALSData(object):
         self.metadata.set_attribute("time_coverage_start", tcs)
         self.metadata.set_attribute("time_coverage_end", tce)
 
-
     @property
     def dims(self):
         return self.elevation.shape
@@ -225,6 +224,7 @@ class ALSData(object):
             return np.floor(np.nanmax(self.time))
         else:
             return self.segment_window[1][1]
+
 
 class ALSMetadata(object):
     """
