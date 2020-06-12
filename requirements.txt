@@ -3,5 +3,7 @@ cmocean
 netcdf4
 matplotlib
 numpy
+loguru
 pyproj
 scipy
+xarray
