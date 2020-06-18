@@ -168,8 +168,8 @@ class ALSMergedGrid(object):
         self.res = res_m
 
         # Compute the shape of the full grid
-        self.xc = np.linspace(self.x_min, self.x_max, (self.x_max-self.x_min) / res_m)
-        self.yc = np.linspace(self.y_min, self.y_max, (self.y_max - self.y_min) / res_m)
+        self.xc = np.linspace(self.x_min, self.x_max, int((self.x_max-self.x_min) / res_m))
+        self.yc = np.linspace(self.y_min, self.y_max, int((self.y_max - self.y_min) / res_m))
         self.xy = np.meshgrid(self.xc, self.yc)
         self.dims = self.xy[0].shape
         self.grid = np.full(self.dims, np.nan)
