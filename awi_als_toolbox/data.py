@@ -86,7 +86,7 @@ class ALSData(object):
         lat_min, lat_max = self.lat_range
         self.metadata.set_attribute("geospatial_lat_min", lat_min)
         self.metadata.set_attribute("geospatial_lat_max", lat_max)
-        lon_min, lon_max = self.lat_range
+        lon_min, lon_max = self.lon_range
         self.metadata.set_attribute("geospatial_lon_min", lon_min)
         self.metadata.set_attribute("geospatial_lon_max", lon_max)
         elev_min, elev_max = self.elev_range
