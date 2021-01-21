@@ -1,4 +1,4 @@
-basemap
+git+https://github.com/matplotlib/basemap.git#egg=basemap
 cmocean
 netcdf4
 matplotlib
