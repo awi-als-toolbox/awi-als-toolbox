@@ -1,7 +1,7 @@
 AWI ALS toolbox
 ===============
 
-![Python package](https://github.com/shendric/awi-als-toolbox/workflows/Python%20package/badge.svg)
+`Python package <https://github.com/shendric/awi-als-toolbox/workflows/Python%20package/badge.svg>`
 
 This python package is a software tool to parse and processs airborne laserscanner (ALS) data
 from polar research aircraft of the Alfred Wegener Institute, Helmholtz Centre
