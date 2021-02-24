@@ -1,7 +1,8 @@
 basemap
 cmocean
-netcdf4
+loguru
 matplotlib
+netcdf4
 numpy
 pyproj
 scipy
