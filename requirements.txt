@@ -1,8 +1,10 @@
-basemap
+git+https://github.com/matplotlib/basemap.git#egg=basemap
 cmocean
 loguru
 matplotlib
 netcdf4
 numpy
+loguru
 pyproj
 scipy
+xarray
