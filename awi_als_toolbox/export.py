@@ -12,17 +12,20 @@ import xarray as xr
 
 class AlsDEMNetCDF(object):
 
-    def __init__(self, dem, export_dir, filename="auto"):
+    def __init__(self, dem, export_dir, filename="auto", project="", parameter="elevation"):
         """
 
         :param dem:
         """
         self.dem = dem
+        self.project = project
+        self.parameter = parameter
         self.export_dir = export_dir
 
         if filename == "auto":
-            template = "awi-icebird-{proc_level}-freeboard-vq580-stere_{res}-{tcs}-{tce}-fv1p0.nc"
+            template = "awi-{project}-{proc_level}-{parameter}-vq580-stere_{res}-{tcs}-{tce}-fv1p0.nc"
             self.filename = template.format(proc_level=self.dem.fn_proc_level, res=self.dem.fn_res,
+                                            project=self.project, parameter=self.parameter,
                                             tcs=self.dem.fn_tcs, tce=self.dem.fn_tce)
         else:
             self.filename = filename
@@ -44,8 +47,8 @@ class AlsDEMNetCDF(object):
         metadata = self.dem.metadata
 
         # Collect all data vars
-        data_vars = {"freeboard": xr.Variable(grid_dims, self.dem.dem_z_masked.astype(np.float32),
-                                              attrs=metadata.get_var_attrs("freeboard")),
+        data_vars = {self.parameter: xr.Variable(grid_dims, self.dem.dem_z_masked.astype(np.float32),
+                                              attrs=metadata.get_var_attrs(self.parameter)),
                      "n_points": xr.Variable(grid_dims, self.dem.n_shots.astype(np.int16),
                                              attrs=metadata.get_var_attrs("n_points")),
                      "lon": xr.Variable(coord_dims, self.dem.lon.astype(np.float32),

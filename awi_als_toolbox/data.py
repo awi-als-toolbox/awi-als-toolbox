@@ -86,7 +86,7 @@ class ALSData(object):
         lat_min, lat_max = self.lat_range
         self.metadata.set_attribute("geospatial_lat_min", lat_min)
         self.metadata.set_attribute("geospatial_lat_min", lat_max)
-        lon_min, lon_max = self.lat_range
+        lon_min, lon_max = self.lon_range
         self.metadata.set_attribute("geospatial_lon_min", lon_min)
         self.metadata.set_attribute("geospatial_lon_min", lon_max)
         elev_min, elev_max = self.elev_range
@@ -98,7 +98,6 @@ class ALSData(object):
         tce = datetime.utcfromtimestamp(np.nanmax(self.time))
         self.metadata.set_attribute("time_coverage_start", tcs)
         self.metadata.set_attribute("time_coverage_end", tce)
-
 
     @property
     def dims(self):
@@ -225,6 +224,7 @@ class ALSData(object):
             return np.floor(np.nanmax(self.time))
         else:
             return self.segment_window[1][1]
+
 
 class ALSMetadata(object):
     """

@@ -9,7 +9,7 @@ import numpy as np
 
 from collections import OrderedDict
 from datetime import datetime
-
+from loguru import logger
 import struct
 import logging
 
@@ -84,6 +84,9 @@ class AirborneLaserScannerFile(object):
         ranges = np.arange(fstart, fstop+int(0.5*segment_size_secs), segment_size_secs)
         start_secs = ranges[:-1]
         end_secs = ranges[1:]
+
+        if len(start_secs) == 0 and fstop > fstart:
+            start_secs, end_secs = [fstart], [fstop]
 
         return list(zip(start_secs, end_secs))
 
@@ -182,7 +185,6 @@ class AirborneLaserScannerFile(object):
 
         return time
 
-
     def _validate_time_range(self, start, stop):
         """ Check for oddities in the time range selection """
         fstart = self.line_timestamp[0]
@@ -232,7 +234,9 @@ class AirborneLaserScannerFile(object):
         line_range = [
             np.where(self.line_timestamp >= start_seconds)[0][0],
             np.where(self.line_timestamp < end_seconds)[0][-1]]
-        n_selected_lines = line_range[1] - line_range[0]
+        n_selected_lines = line_range[1] - line_range[0] + 1
+
+        logger.debug("Line Range: %d - %d" % (line_range[0], line_range[1]))
 
         return line_range, n_selected_lines
 
