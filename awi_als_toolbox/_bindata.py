@@ -543,9 +543,12 @@ class ALSPointCloudData(object):
         # Find illegal latitude values
         illegal_lat = np.where(np.abs(self.latitude) > 90.0)
         illegal_lon = np.where(np.abs(self.longitude) > 180.0)
+        if illegal_lat[0].size == 0 and illegal_lon[0].size == 0:
+            return
         for illegal_values in [illegal_lat, illegal_lon]:
-            for key in self.vardef:
+            for key in self.shot_variables:
                 var = getattr(self, key)
+                # FIXME: This will break for non float variable such as n_echoes
                 var[illegal_values] = np.nan
                 setattr(self, key, var)
 
