@@ -2,22 +2,19 @@
 
 
 import numpy as np
-
 from datetime import datetime
 
 
 class ALSData(object):
-    """ A data class container for ALS data"""
+    """
+    A data class container for ALS data extracted from binary point cloud data
+    """
 
-    vardef = ["time", "longitude", "latitude", "elevation"]
-
-    def __init__(self, time, lon, lat, elev, segment_window=None):
+    def __init__(self, shot_vars, line_vars, segment_window=None):
         """
         Data container for ALS data ordered in scan lines.
-        :param time:
-        :param lon:
-        :param lat:
-        :param elev:
+        :param shot_vars:
+        :param line_vars:
         :param segment_window:
         """
 
@@ -26,40 +23,15 @@ class ALSData(object):
         self.debug_data = {}
         self.segment_window = segment_window
 
-        # Flightdata container (optional)
-        self.flightdata = None
-
         # save data arrays
-        # TODO: Validate shapes etc.
-        self.time = time
-        self.longitude = lon
-        self.latitude = lat
-        self.elevation = elev
+        self._shot_vars = shot_vars
+        self._line_vars = line_vars
 
         # Update the metadata now with the data in place
         self._set_metadata()
 
     def set_debug_data(self, **kwargs):
         self.debug_data.update(kwargs)
-
-    def set_flightdata(self, flightdata):
-        """
-        Add gps data for the entire flight
-        :param flightdata: (FlightGPSData) gps data (time, lon, lat, alt) for full flight
-                                           (seconds since the same epoch as laserscanner data)
-        :return: None
-        """
-        self.flightdata = flightdata
-
-    def get_flightdata_segment_subset(self):
-        """
-        Returns the lon/lat measurement of the flightdata (if present) for the time of the ALS segment
-        :return: (longitude, latitude) as numpy arrays or None if flightdata has not been set
-        """
-        if self.flightdata is None:
-            return None
-        else:
-            return self.flightdata.get_subset(self.tcs_segment_time, self.tce_segment_time)
 
     def sanitize(self):
         """ Run a series of test to identify illegal data points (e.g. out of bounds lon/lat, etc) """
@@ -94,8 +66,8 @@ class ALSData(object):
         self.metadata.set_attribute("geospatial_vertical_max", elev_max)
 
         # Compute time parameters
-        tcs = datetime.utcfromtimestamp(np.nanmin(self.time))
-        tce = datetime.utcfromtimestamp(np.nanmax(self.time))
+        tcs = datetime.utcfromtimestamp(np.nanmin(self.timestamp)[0])
+        tce = datetime.utcfromtimestamp(np.nanmax(self.time)[0])
         self.metadata.set_attribute("time_coverage_start", tcs)
         self.metadata.set_attribute("time_coverage_end", tce)
 
@@ -110,6 +82,14 @@ class ALSData(object):
     @property
     def n_shots(self):
         return self.dims[1]
+
+    @property
+    def shot_variables(self):
+        return self.shot_vars.keys()
+
+    @property
+    def line_variables(self):
+        return self.line_vars.keys()
 
     @property
     def lat_range(self):
@@ -213,7 +193,6 @@ class ALSData(object):
         else:
             return self.segment_window[0][1]
 
-
     @property
     def tce_segment_seconds(self):
         """
@@ -225,6 +204,19 @@ class ALSData(object):
         else:
             return self.segment_window[1][1]
 
+    def __getattr__(self, attr):
+        """
+        Modify the attribute getter to provide a shortcut to the data content
+        :param attr:
+        :return:
+        """
+        if attr in self.shot_variables:
+            return self._shot_vars[attr]
+        elif attr in self.line_variables:
+            return self._line_vars[attr]
+        else:
+            raise AttributeError()
+
 
 class ALSMetadata(object):
     """
@@ -235,7 +227,7 @@ class ALSMetadata(object):
     ATTR_DICT = ["title", "summary", "keywords", "Conventions", "id", "naming_authority",
                  "history", "source", "processing_level", "comment", "acknowledgement", "license",
                  "standard_name_vocabulary", "date_created", "creator_name", "creator_url", "creator_email",
-                 "institution", "project", "publisher_name", "publisher_url","publisher_email",
+                 "institution", "project", "publisher_name", "publisher_url", "publisher_email",
                  "geospatial_bound", "geospatial_bounds_crs", "geospatial_bounds_vertical_crs",
                  "geospatial_lat_min",  "geospatial_lat_max", "geospatial_lon_min", "geospatial_lon_max",
                  "geospatial_vertical_min", "geospatial_vertical_max", "time_coverage_start", "time_coverage_end",
@@ -285,6 +277,7 @@ class ALSMetadata(object):
         :param value: the value of the attribute
         :param raise_on_error: (bool) flag whether a ValueError should be raised when key is not a valid attribute
                                       name
+        :param datetime2iso8601: (bool)
         :return: None
         """
 
