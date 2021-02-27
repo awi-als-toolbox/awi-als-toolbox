@@ -6,6 +6,7 @@
 __author__ = "Stefan Hendricks"
 
 import os
+import importlib
 import xarray as xr
 from netCDF4 import num2date, date2num
 
@@ -19,7 +20,7 @@ from loguru import logger
 from scipy.interpolate import griddata
 from scipy.ndimage.filters import maximum_filter
 
-from ._utils import get_yaml_cfg, geo_inverse
+from ._utils import get_yaml_cfg, geo_inverse, get_cls
 
 
 class AlsDEM(object):
@@ -427,6 +428,20 @@ class AlsDEMCfg(object):
         cfg = cls(**keyw)
 
         return cfg
+
+    def get_input_filter(self):
+        """
+        Returns a list initialized input filter objects
+        :return:
+        """
+        input_filter_classes = []
+        for input_filter_def in self.input_filter:
+            obj = get_cls("awi_als_toolbox.filter", input_filter_def["pyclass"])
+            if obj is not None:
+                input_filter_classes.append(obj(**input_filter_def["keyw"]))
+            else:
+                raise ImportError("Cannot find class awi_als_toolbox.filter.{}".format(input_filter_def["pyclass"]))
+        return input_filter_classes
 
 
 class ALSGridCollection(object):

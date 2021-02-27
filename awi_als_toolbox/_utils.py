@@ -7,6 +7,7 @@ Small helper function for the toolbox
 __author__ = "Stefan Hendricks"
 
 import yaml
+import importlib
 from pyproj import Geod
 from attrdict import AttrDict
 
@@ -27,3 +28,21 @@ def get_yaml_cfg(yaml_filepath):
     with open(str(yaml_filepath), 'r') as fileobj:
         cfg = AttrDict(yaml.safe_load(fileobj))
     return cfg
+
+
+def get_cls(module_name, class_name, relaxed=True):
+    """ Small helper function to dynamically load classes"""
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError:
+        if relaxed:
+            return None
+        else:
+            raise ImportError("Cannot load module: %s" % module_name)
+    try:
+        return getattr(module, class_name)
+    except AttributeError:
+        if relaxed:
+            return None
+        else:
+            raise NotImplementedError("Cannot load class: %s.%s" % (module_name, class_name))
