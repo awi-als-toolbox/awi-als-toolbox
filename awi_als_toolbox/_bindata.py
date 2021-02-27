@@ -574,8 +574,8 @@ class ALSPointCloudData(object):
         self.metadata.set_attribute("geospatial_vertical_max", elev_max)
 
         # Compute time parameters
-        tcs = datetime.utcfromtimestamp(np.nanmin(self.timestamp)[0])
-        tce = datetime.utcfromtimestamp(np.nanmax(self.time)[0])
+        tcs = datetime.utcfromtimestamp(float(np.nanmin(self.timestamp)))
+        tce = datetime.utcfromtimestamp(float(np.nanmax(self.timestamp)))
         self.metadata.set_attribute("time_coverage_start", tcs)
         self.metadata.set_attribute("time_coverage_end", tce)
 
