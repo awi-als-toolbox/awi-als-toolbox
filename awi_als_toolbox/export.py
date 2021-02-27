@@ -9,6 +9,35 @@ import os
 import numpy as np
 import xarray as xr
 
+from ._utils import get_yaml_cfg
+
+
+class AlsDEMNetCDFCfg(object):
+    """
+    Container for the netCDF output structure
+    """
+
+    def __init__(self, filenaming, global_attributes, variable_attributes):
+        """
+
+        :param filenaming:
+        :param gattrs:
+        :param vars:
+        """
+        self.filenaming = filenaming
+        self.global_attributes = global_attributes
+        self.variable_attributes = variable_attributes
+
+    @classmethod
+    def from_cfg(cls, yaml_filepath):
+        """
+        Initialize the class from a yaml config file
+        :param yaml_filepath:
+        :return:
+        """
+        cfg = get_yaml_cfg(yaml_filepath)
+        return cls(**cfg)
+
 
 class AlsDEMNetCDF(object):
 
@@ -48,7 +77,7 @@ class AlsDEMNetCDF(object):
 
         # Collect all data vars
         data_vars = {self.parameter: xr.Variable(grid_dims, self.dem.dem_z_masked.astype(np.float32),
-                                              attrs=metadata.get_var_attrs(self.parameter)),
+                                                 attrs=metadata.get_var_attrs(self.parameter)),
                      "n_points": xr.Variable(grid_dims, self.dem.n_shots.astype(np.int16),
                                              attrs=metadata.get_var_attrs("n_points")),
                      "lon": xr.Variable(coord_dims, self.dem.lon.astype(np.float32),
