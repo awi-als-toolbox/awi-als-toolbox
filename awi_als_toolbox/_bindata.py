@@ -359,8 +359,8 @@ class AirborneLaserScannerFileV2(AirborneLaserScannerFile):
         :return: OrderedDict
         """
         per_shot_variables = OrderedDict((('timestamp', (np.float64, Double)),
-                                          ('longitude', (np.float64, Double)),
                                           ('latitude', (np.float64, Double)),
+                                          ('longitude', (np.float64, Double)),
                                           ('elevation', (np.float64, Double)),
                                           ('amplitude', (np.float32, Single)),
                                           ('reflectance', (np.float32, Single)),
