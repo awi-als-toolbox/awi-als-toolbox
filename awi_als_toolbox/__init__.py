@@ -9,7 +9,7 @@ __all__ = ["export", "demgen", "graphics", "scripts",
 import os
 import sys
 
-from ._reader import (AirborneLaserScannerFile, AirborneLaserScannerFileV2)
+from ._bindata import (AirborneLaserScannerFile, AirborneLaserScannerFileV2)
 
 import warnings
 warnings.filterwarnings("ignore")
