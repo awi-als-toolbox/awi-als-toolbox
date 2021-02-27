@@ -7,13 +7,15 @@ and Marine Research.
 """
 
 __all__ = ["export", "filter", "graphics", "scripts",
-           "AirborneLaserScannerFile", "AirborneLaserScannerFileV2",
-           "AlsDEM", "AlsDEMCfg", "ALSL4Grid", "ALSMergedGrid", "ALSGridCollection"]
+           "AirborneLaserScannerFile", "AirborneLaserScannerFileV2", "ALSPointCloudData",
+           "AlsDEM", "AlsDEMCfg", "ALSL4Grid", "ALSMergedGrid", "ALSGridCollection",
+           "get_cls", "__version__"]
 
 import sys
+import importlib
 from pathlib import Path
 
-from ._bindata import (AirborneLaserScannerFile, AirborneLaserScannerFileV2)
+from ._bindata import (AirborneLaserScannerFile, AirborneLaserScannerFileV2, ALSPointCloudData)
 from ._grid import (AlsDEM, AlsDEMCfg, ALSL4Grid, ALSMergedGrid, ALSGridCollection)
 
 import warnings
