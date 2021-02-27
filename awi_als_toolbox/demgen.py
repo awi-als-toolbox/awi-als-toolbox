@@ -11,6 +11,8 @@ import numpy as np
 from scipy.interpolate import griddata
 from scipy.ndimage.filters import maximum_filter
 
+from ._utils import get_yaml_cfg
+
 
 class AlsDEM(object):
     """ TODO: Documentation """
@@ -234,7 +236,7 @@ class AlsDEM(object):
 
         # Third implementation (calculate a header for each shot per line and use average)
         n_lines, n_shots_per_line = np.shape(self.x)
-        angles = np.full((n_shots_per_line), np.nan)
+        angles = np.full(n_shots_per_line, np.nan)
         for shot_index in np.arange(n_shots_per_line):
             p0 = [self.x[0, shot_index], self.y[0, shot_index]]
             p1 = [self.x[-1, shot_index], self.y[-1, shot_index]]
@@ -291,7 +293,7 @@ class AlsDEM(object):
         A filename compatible time coverage start str
         :return: str
         """
-        datetime_format = ("%Y%m%dT%H%M%S")
+        datetime_format = "%Y%m%dT%H%M%S"
         return self.als.tcs_segment_datetime.strftime(datetime_format)
 
     @property
@@ -300,7 +302,7 @@ class AlsDEM(object):
         A filename compatible time coverage end str
         :return: str
         """
-        datetime_format = ("%Y%m%dT%H%M%S")
+        datetime_format = "%Y%m%dT%H%M%S"
         return self.als.tce_segment_datetime.strftime(datetime_format)
 
     @property
@@ -321,37 +323,47 @@ class AlsDEM(object):
 
 class AlsDEMCfg(object):
 
-    def __init__(self, resolution=1.0, method="default", gap_filter="default", grid_pad_fraction=0.01,
-                 segment_len_secs=20.0, projection="auto", grid_mapping=None):
+    def __init__(self, input_filter=None, connect_keyw=None, resolution_m=1.0, segment_len_secs=30, method=None, gap_filling=None,
+                 grid_pad_fraction=0.05, projection=None, grid_mapping=None):
         """
-        Filter settings for DEM generation
-        :param resolution:
-        :param align_heading:
-        :param griddata:
-        :param gap_filter:
+        Settings for DEM generation including spatial and temporal resolution, gridding settings and
+        target projection
+        :param input_filter:
+        :param resolution_m:
+        :param segment_len_secs:
+        :param method:
+        :param gap_filling:
         :param grid_pad_fraction:
+        :param projection:
+        :param grid_mapping:
         """
 
         # --- Set Default settings ---
 
         # DEM resolution in meter
-        self._resolution = resolution
+        self.resolution = resolution_m
+
+        # Lengths of the segments
+        self.segment_len_secs = segment_len_secs
+
+        # A list of filters applied to the input data
+        # before gridding.
+        self.input_filter = input_filter
+
+        if connect_keyw is None:
+            connect_keyw = {}
+        self.connect_keyw = connect_keyw
 
         # Properties for data gridding
-        if method == "default":
+        if method is None:
             method = dict(algorithm="scipy.griddata", keyw=dict(method="linear", rescale=True))
-        self._griddata = method
+        self.griddata = method
 
-        # Method do properly handle data gaps after gridding
-        if gap_filter == "default":
-            gap_filter = dict(algorithm="maximum_filter", keyw=dict(size=3, mode="nearest"))
-        self._gap_filter = gap_filter
+        # Method to handle data gaps
+        self.gap_filter = gap_filling
 
         # Padding of the grid extent
-        self._grid_pad_fraction = grid_pad_fraction
-
-        # Standard length of segments
-        self._segment_len_secs = segment_len_secs
+        self.grid_pad_fraction = grid_pad_fraction
 
         # Projection information
         # default is "auto", meaning that the projection will be estimated from the point cloud.
@@ -361,6 +373,18 @@ class AlsDEMCfg(object):
         # Grid Mapping
         # same information as projection, but in a format for netCDF grid mapping variable
         self.grid_mapping = grid_mapping
+
+    @classmethod
+    def from_cfg(cls, yaml_filepath):
+        """
+        Initialize the ALSDEMCfg instance from a yaml config file w
+        :param yaml_filepath:
+        :return:
+        """
+
+        # Read the yaml file
+        cfg = get_yaml_cfg(yaml_filepath)
+        return cls(**cfg)
 
     @classmethod
     def preset(cls, mode, **kwargs):
@@ -396,27 +420,5 @@ class AlsDEMCfg(object):
 
         return cfg
 
-    @property
-    def resolution(self):
-        return float(self._resolution)
 
-    @property
-    def align_heading(self):
-        return bool(self._align_heading)
-
-    @property
-    def griddata(self):
-        return dict(self._griddata)
-
-    @property
-    def gap_filter(self):
-        return dict(self._gap_filter)
-
-    @property
-    def grid_pad_fraction(self):
-        return float(self._grid_pad_fraction)
-
-    @property
-    def segment_len_secs(self):
-        return int(self._segment_len_secs)
 
