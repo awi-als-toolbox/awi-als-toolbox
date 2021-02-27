@@ -15,9 +15,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from awi_als_toolbox import AirborneLaserScannerFile, AirborneLaserScannerFileV2
-from awi_als_toolbox.demgen import AlsDEM
-from awi_als_toolbox.export import AlsDEMNetCDF
+from . import AirborneLaserScannerFile, AirborneLaserScannerFileV2, AlsDEM
+from .export import AlsDEMNetCDF
 
 
 def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1):
@@ -27,6 +26,7 @@ def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1):
     :param als_filepath: (str, pathlib.Path): The full filepath of the binary ALS point cloud file
     :param dem_cfg: (awi_als_toolbox.demgen.AlsDEMCfg):
     :param output_cfg:
+    :param file_version:
     :return:
     """
 
@@ -79,7 +79,7 @@ def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1):
         #     continue
 
         # Apply any filter defined
-        for input_filter in dem_cfg.input.filter:
+        for input_filter in dem_cfg.get_input_filter():
             input_filter.apply(als)
 
         # Validate segment
@@ -115,6 +115,6 @@ def gridding_workflow(als, dem_cfg, export_dir):
     logger.info("... done")
 
     # create
-    nc = AlsDEMNetCDF(dem, export_dir, cfg=dem_cfg.output)
+    nc = AlsDEMNetCDF(dem, export_dir, dem_cfg.output)
     nc.export()
     logger.info("... exported to: %s" % nc.path)
