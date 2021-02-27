@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 
+import tqdm
 import struct
 
 from loguru import logger
@@ -121,7 +122,7 @@ class AirborneLaserScannerFile(object):
         #       reader is always positioned at the start byte of a particular line
         with open(self.filepath, 'rb') as f:
 
-            for i in np.arange(n_selected_lines):
+            for i in tqdm.tqdm(np.arange(n_selected_lines), desc="Parse lines"):
 
                 # Position to the start byte of the current line
                 f.seek(startbyte)
