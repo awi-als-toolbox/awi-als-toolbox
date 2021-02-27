@@ -593,11 +593,11 @@ class ALSPointCloudData(object):
 
     @property
     def shot_variables(self):
-        return self.shot_vars.keys()
+        return self._shot_vars.keys()
 
     @property
     def line_variables(self):
-        return self.line_vars.keys()
+        return self._line_vars.keys()
 
     @property
     def lat_range(self):
