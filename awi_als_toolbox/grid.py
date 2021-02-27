@@ -16,7 +16,7 @@ from osgeo import gdal, osr
 
 from loguru import logger
 
-from awi_als_toolbox.utils import geo_inverse
+from awi_als_toolbox._utils import geo_inverse
 
 
 class ALSGridCollection(object):
