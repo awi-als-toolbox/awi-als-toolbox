@@ -41,23 +41,25 @@ class AlsDEMNetCDFCfg(object):
 
 class AlsDEMNetCDF(object):
 
-    def __init__(self, dem, export_dir, filename="auto", project="", parameter="elevation"):
+    def __init__(self, dem, export_dir, cfg):
         """
 
         :param dem:
         """
         self.dem = dem
-        self.project = project
-        self.parameter = parameter
         self.export_dir = export_dir
-
-        if filename == "auto":
-            template = "awi-{project}-{proc_level}-{parameter}-vq580-stere_{res}-{tcs}-{tce}-fv1p0.nc"
-            self.filename = template.format(proc_level=self.dem.fn_proc_level, res=self.dem.fn_res,
-                                            project=self.project, parameter=self.parameter,
-                                            tcs=self.dem.fn_tcs, tce=self.dem.fn_tce)
-        else:
-            self.filename = filename
+        self.cfg = cfg
+        # self.project = project
+        # self.parameter = parameter
+        # self.export_dir = export_dir
+        #
+        # if filename == "auto":
+        #     template = "awi-{project}-{proc_level}-{parameter}-vq580-stere_{res}-{tcs}-{tce}-fv1p0.nc"
+        #     self.filename = template.format(proc_level=self.dem.fn_proc_level, res=self.dem.fn_res,
+        #                                     project=self.project, parameter=self.parameter,
+        #                                     tcs=self.dem.fn_tcs, tce=self.dem.fn_tce)
+        # else:
+        #     self.filename = filename
 
         # Construct the dataset
         # NOTE: The actual export procedure is handled by the export method to allow custom modification
