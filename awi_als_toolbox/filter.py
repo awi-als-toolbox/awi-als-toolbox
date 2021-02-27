@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 
 """
+A module containing filter algorithm for the ALS point cloud data.
 """
 
 __author__ = "Stefan Hendricks"
 
 
 import numpy as np
+
 
 class ALSPointCloudFilter(object):
     """ Base class for point cloud filters """
@@ -16,35 +18,30 @@ class ALSPointCloudFilter(object):
 
 
 class AtmosphericBackscatterFilter(ALSPointCloudFilter):
-    """ A filter for removing backscatter from fog/ice crystals/ ... """
+    """
+    Identifies and removes target echoes that are presumably within the atmosphere
+    based on elevation statistics for each line.
+    """
 
     def __init__(self, filter_threshold_m=5):
         """
-
+        Initialize the filter.
         :param filter_threshold_m:
         """
-
         super(AtmosphericBackscatterFilter, self).__init__(filter_threshold_m=filter_threshold_m)
 
     def apply(self, als):
         """
-        Line-wise outlier filter
+        Apply the filter for all lines in the ALS data container
         :param als:
         :return:
         """
 
-        # import matplotlib.pyplot as plt
-        # x = np.arange(als.n_shots)
-
-        # The filter work linewise
         for line_index in np.arange(als.n_lines):
 
             # 1  Compute the median elevation of a line
             elevations = als.elevation[line_index, :]
             line_median = np.nanmedian(elevations)
-
-            # plt.figure(dpi=150)
-            # plt.scatter(x, als.elevation[line_index, :], s=1, edgecolors="none")
 
             # 2. Fill nan values with median elevation
             # This is needed for spike detection
@@ -54,13 +51,8 @@ class AtmosphericBackscatterFilter(ALSPointCloudFilter):
             # Search for sudden changes (spikes)
             spike_indices = self._get_filter_indices(elevations_nonan, self.cfg["filter_threshold_m"])
 
-            # plt.scatter(x[spike_indices], als.elevation[line_index, spike_indices], s=2, edgecolor="red", c="none")
-            # plt.plot(x, np.full(x.shape, line_median))
-            # plt.show()
-
             # Remove spiky elevations
             als.elevation[line_index, spike_indices] = np.nan
-
 
     @staticmethod
     def _get_filter_indices(vector, filter_treshold):
