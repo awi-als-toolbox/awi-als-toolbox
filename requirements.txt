@@ -9,3 +9,5 @@ pyproj
 scipy
 tqdm
 xarray
+cached-property
+attrdict
