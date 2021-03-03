@@ -83,7 +83,7 @@ class AlsDEMNetCDF(object):
         """
 
         # Parameter
-        grid_dims = ("yc", "xc")
+        grid_dims = coord_dims = ("yc", "xc")
 
         # Collect all gridded parameter
         data_vars = OrderedDict()
@@ -95,13 +95,13 @@ class AlsDEMNetCDF(object):
             xrvar = xr.Variable(grid_dims, var, attrs=self.cfg.get_var_attrs(grid_variable_name))
             data_vars[grid_variable_name] = xrvar
 
-        # Add
-        # "n_points": xr.Variable(grid_dims, self.dem.n_shots.astype(np.int16),
-        #                         attrs=metadata.get_var_attrs("n_points")),
-        # "lon": xr.Variable(coord_dims, self.dem.lon.astype(np.float32),
-        #                    attrs=metadata.get_var_attrs("lon")),
-        # "lat": xr.Variable(coord_dims, self.dem.lat.astype(np.float32),
-        #                    attrs=metadata.get_var_attrs("lat"))}
+        # Add additional variables
+        data_vars["n_points"] = xr.Variable(grid_dims, self.dem.n_shots.astype(np.int16),
+                                            attrs=self.cfg.get_var_attrs("n_points"))
+        data_vars["lon"] = xr.Variable(coord_dims, self.dem.lon.astype(np.float32),
+                                       attrs=self.cfg.get_var_attrs("lon"))
+        data_vars["lat"] = xr.Variable(coord_dims, self.dem.lat.astype(np.float32),
+                                       attrs=self.cfg.get_var_attrs("lat"))
 
         # Add grid mapping
         grid_mapping_name, grid_mapping_attrs = self.dem.grid_mapping_items
