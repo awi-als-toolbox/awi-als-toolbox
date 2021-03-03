@@ -56,7 +56,8 @@ class AirborneLaserScannerFile(object):
         self._read_line_timestamp()
 
         # Establish the line parser from the header information
-        self.line_parser = self._get_line_parser(self.header.data_points_per_line)
+        line_parser = self._get_line_parser(self.header.data_points_per_line)
+        self.line_parser = line_parser.compile()
 
     def get_segment_list(self, segment_size_secs):
         """
