@@ -5,14 +5,13 @@
 
 __author__ = "Stefan Hendricks"
 
-import os
-import importlib
 import xarray as xr
 from netCDF4 import num2date, date2num
 
 import numpy as np
 
 import pyproj
+from pathlib import Path
 from osgeo import gdal, osr
 
 from loguru import logger
@@ -515,7 +514,7 @@ class ALSGridCollection(object):
 
     def _read_grid_data(self):
         for filepath in self.filepaths:
-            logger.info("Read: %s" % os.path.split(filepath)[-1])
+            logger.info("Read: %s" % Path(filepath).name)
             grid_data = ALSL4Grid(filepath)
             self.grids.append(grid_data)
 
@@ -590,7 +589,7 @@ class ALSL4Grid(object):
 
     @property
     def filename(self):
-        return os.path.split(self.filepath)[-1]
+        return Path(self.filepath).name
 
     @property
     def reftime(self):
