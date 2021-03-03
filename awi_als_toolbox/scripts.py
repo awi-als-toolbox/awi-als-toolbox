@@ -94,7 +94,7 @@ def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1):
         gridding_workflow(als, dem_cfg, output_cfg)
 
 
-def gridding_workflow(als, dem_cfg, export_dir):
+def gridding_workflow(als, dem_cfg, output_cfg):
     """
     Single function gridding and plot creation that can be passed to a multiprocessing process
     :param als: (ALSData) ALS point cloud data
@@ -105,16 +105,20 @@ def gridding_workflow(als, dem_cfg, export_dir):
 
     # Grid the data
     logger.info("... Start gridding")
-    try:
-        dem = AlsDEM(als, cfg=dem_cfg)
-        dem.create()
-    except:
-        logger.error("Unhandled exception while gridding -> skip gridding")
-        print(sys.exc_info()[1])
-        return
+
+    dem = AlsDEM(als, cfg=dem_cfg)
+    dem.create()
+
+    # try:
+    #     dem = AlsDEM(als, cfg=dem_cfg)
+    #     dem.create()
+    # except:
+    #     logger.error("Unhandled exception while gridding -> skip gridding")
+    #     print(sys.exc_info()[1])
+    #     return
     logger.info("... done")
 
     # create
-    nc = AlsDEMNetCDF(dem, export_dir, dem_cfg.output)
+    nc = AlsDEMNetCDF(dem, output_cfg)
     nc.export()
     logger.info("... exported to: %s" % nc.path)
