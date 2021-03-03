@@ -23,15 +23,20 @@ from ._utils import get_yaml_cfg, geo_inverse, get_cls
 
 
 class AlsDEM(object):
-    """ TODO: Documentation """
+    """
+    This class handels the gridding of ALS point cloud data
+    TODO: Documentation
+    IDEA: Create an ALSL4Grid instance that can saved as netCDF and then also restored
+    """
 
     def __init__(self, als, cfg=None):
         """
         Create a gridded DEM from point cloud airborne laser scanner (ALS) data
-        :param als: awi_als_toolbox.reader.ALSData object
-        :param cfg:
+        :param als: awi_als_toolbox._bindata.ALSData object
+        :param cfg: awi_als_toolbox._grid.AlsDEMCfg
         """
 
+        # Store inputs
         self.als = als
         self.metadata = als.metadata.copy()
         self.processing_level = "Level-3 Collated (l3c)"
@@ -39,23 +44,29 @@ class AlsDEM(object):
             cfg = AlsDEMCfg()
         self.cfg = cfg
 
-    @property
-    def dem_z_masked (self):
-        dem_z_masked = np.copy(self.dem_z)
-        dem_z_masked[self.dem_mask] = np.nan
-        return dem_z_masked
+        # Init class properties
+        # A dictionary for storing the grid variables
+        self.p = None            # the pyproj.Proj projection
+        self.x = None            # x-coordinate of the point-cloud input data
+        self.y = None            # y-coordinate of the point-cloud input data
+        self.dem_x = None        # x-coordinate of the all grid cells
+        self.dem_y = None        # y-coordinate of the all grid cells
+        self._grid_var = dict()  # dictionary containing the gridded variables
+        self._dem_mask = None    # Array containing the mask for the grid
+        self._n_shots = None     # Array containing the number of echoes per grid cell
 
     def create(self):
-        """ Grids irregular laser scanner points to regular grid """
+        """
+        Grids irregular laser scanner points to regular grid
+        :return:
+        """
         # TODO: Properly validate data
 
         # Project lon/lat coordinates of shots into cartesian coordinate system
+        # IDEA:
         self._proj()
 
-        # if self.cfg.align_heading:
-        #     self._align()
-
-        # Grid all shots
+        # Grid the data of all variables
         self._griddata()
 
         # Create grid statistics
@@ -69,6 +80,28 @@ class AlsDEM(object):
         # Manage metadata
         self._update_metadata()
 
+    def get_variable(self, var_name, masked=True):
+        """
+        Return a variable by its name (valid variable names -> self.grid_variable_names)
+        :param var_name: (string) the name of the variable
+        :param masked: (bool) if true, input and gap filter masked will be applied
+        :return:
+        """
+
+        # Get the gridded variables
+        var = self._grid_var.get(var_name, None)
+        if var is None:
+            logger.error("Variable does not exist: {}".format(var_name))
+            return None
+
+        # Mask the variable if required
+        if masked:
+            var = np.ma.array(var)
+            var.mask = self._dem_mask
+
+        # Return variable
+        return var
+
     def get_swath_lonlat_center(self):
         """
         Get the center position (longitude, latitude) of the swath segment
@@ -80,76 +113,120 @@ class AlsDEM(object):
         return lon_0, lat_0
 
     def _proj(self):
-        """ Calculate projection coordinates """
+        """
+        Calculate (x, y) coordinates in a cartesian coordinate system that will be
+        the basis for gridding process. This is done by projecting longitude/latitude
+        to a recognized projection using the pyproj module
 
-        # TODO: Add option to prescribe projection
+        There are two options for choosing the projection.
 
-        # Guess projection center
+        - Using a polar stereographic projection with a projection center very
+          close to the data to minimize the effect of distortion and also that
+          positive y points very close to true north.
+          This option is used if `self.cfg.projection` is set to the string `auto
+
+        - Use a pre-defined projection. In this case `self.cfg.projection` must
+          contain a dictionary with keywords accepted by pyproj.Proj
+
+        The method will add properties to class:
+            - self._proj_parameters: A dictionary containing the projection
+                      definition
+            - self.p: The initialized pyproj.Proj instance that has been used
+                      to compute the (x,y) point list
+            - self.x: x-coordinate of the projection in meter with the same
+                      dimensions as the point cloud data
+            - self.y: y-coordinate of the projection in meter with the same
+                      dimensions as the point cloud data
+        :return: None
+        """
+
+        # Set up the projection
         lon_0, lat_0ts = self.get_swath_lonlat_center()
-
-        # Get the nan mask (joint mask of longitude & latitude)
-        is_nan = np.logical_or(np.isnan(self.als.longitude), np.isnan(self.als.latitude))
-        nan_mask = np.where(is_nan)
-
-        lon, lat = np.copy(self.als.longitude), np.copy(self.als.latitude)
-
-        lon[nan_mask] = lon_0
-        lat[nan_mask] = lat_0ts
-
-        # get projection coordinates
         if self.cfg.projection == "auto":
             self._proj_parameters = dict(proj='stere', lat_ts=lat_0ts, lat_0=lat_0ts, lon_0=lon_0, ellps="WGS84")
         else:
             self._proj_parameters = self.cfg.projection
         self.p = pyproj.Proj(**self._proj_parameters)
+
+        # Prepare the input to ensure no NaN's are fed to the projection
+        # -> Remember NaN mask and fill them with dummy values
+        is_nan = np.logical_or(np.isnan(self.als.longitude), np.isnan(self.als.latitude))
+        nan_mask = np.where(is_nan)
+        lon, lat = np.copy(self.als.longitude), np.copy(self.als.latitude)
+        lon[nan_mask] = lon_0
+        lat[nan_mask] = lat_0ts
+
+        # Compute the projection
         self.x, self.y = self.p(lon, lat)
 
+        # Restore the NaN mask (if applicable)
         if len(nan_mask) > 0:
             self.x[nan_mask] = np.nan
             self.y[nan_mask] = np.nan
 
     def _griddata(self):
-        """ Do the actual gridding """
+        """
+        Grid all variables indicated as grid variables (see property grid_variable_names
+        of the als l1 data object). Data needs to be already projected before this method
+        can be used.
+
+        The result of this method will be stored in the self._grid_var dictionary
+        with one item for each gridded variable. The variables in self._grid_var
+        will be "as is" from the gridding routine and any masking must be
+        applied later.
+
+        # TODO: Review benefit of specifying multipe gridding methods
+        :return:
+        """
+
+        # shortcut to the grid resolution in meter
         res = self.cfg.resolution
 
-        # Get area of data
+        # Get the extent of the data coverage in projection coordinates.
         xmin, xmax = np.nanmin(self.x), np.nanmax(self.x)
         ymin, ymax = np.nanmin(self.y),  np.nanmax(self.y)
 
-        # Add padding
-        width = xmax-xmin
-        height = ymax-ymin
+        # Compute the extent of the grid
+        # The grid extent may differ form the data extent by an optional padding factor.
+        # In addition, the grid extent is rounded to full meters to result in
+        # "nice" positions
+        width, height = xmax-xmin, ymax-ymin
         pad = np.amax([self.cfg.grid_pad_fraction*width, self.cfg.grid_pad_fraction*height])
-        xmin = np.floor(xmin - pad)
-        xmax = np.ceil(xmax + pad)
-        ymin = np.floor(ymin - pad)
-        ymax = np.ceil(ymax + pad)
+        xmin, xmax = np.floor(xmin - pad), np.ceil(xmax + pad)
+        ymin, ymax = np.floor(ymin - pad), np.ceil(ymax + pad)
 
-        # Create Grid and no data mask
+        # Create x and y coordinate arrays as well as the
+        # mesh grid required for the gridding process.
         self.xc = np.arange(xmin, xmax+res, res)
         self.yc = np.arange(ymin, ymax+res, res)
         self.dem_x, self.dem_y = np.meshgrid(self.xc, self.yc)
         self.nonan = np.where(np.logical_or(np.isfinite(self.x), np.isfinite(self.y)))
 
-        # Create regular grid
-        gridding_algorithm = self.cfg.griddata["algorithm"]
-        if gridding_algorithm == "scipy.griddata":
-            self.dem_z = griddata((self.x[self.nonan].flatten(), self.y[self.nonan].flatten()),
-                                  self.als.elevation[self.nonan].flatten(),
-                                  (self.dem_x, self.dem_y),
-                                  **self.cfg.griddata["keyw"])
-        else:
-            raise NotImplementedError("Gridding algorithm: %s" % gridding_algorithm)
-
-        self.dem_z = np.ma.array(self.dem_z)
-        self.dem_mask = np.zeros(self.dem_z.shape, dtype=np.bool)
-
-        # Compute lons, lats for grid
+        # Compute longitude, latitude values for grid (x, y) coordinates
         self.lon, self.lat = self.p(self.dem_x, self.dem_y, inverse=True)
 
-    def _grid_statistics(self):
-        """ Compute grid statistics (Currently number of shots per grid cell only"""
+        # Execute the gridding for all variables
+        gridding_algorithm = self.cfg.griddata
+        for grid_variable_name in self.als.grid_variable_names:
+            logger.info("Grid variable: {}".format(grid_variable_name))
+            variable = getattr(self.als, grid_variable_name)
+            if gridding_algorithm == "scipy.griddata":
+                gridded_var = griddata((self.x[self.nonan].flatten(), self.y[self.nonan].flatten()),
+                                       variable[self.nonan].flatten(),
+                                       (self.dem_x, self.dem_y), rescale=True)
+            else:
+                raise NotImplementedError("Gridding algorithm: %s" % self.cfg.griddata)
+            self._grid_var[grid_variable_name] = gridded_var
 
+    def _grid_statistics(self):
+        """
+        Compute grid statistics. This currently includes the number of echoes
+        per grid cell that is used to mask the output of the gridding routines.
+
+        The result is stored in the attribute self._n_shots
+
+        :return:
+        """
         res = self.cfg.resolution
         xedges = np.linspace(self.xc[0]-res/2., self.xc[-1]+res/2.0, len(self.xc)+1)
         yedges = np.linspace(self.yc[0]-res/2., self.yc[-1]+res/2.0, len(self.yc)+1)
@@ -158,7 +235,7 @@ class AlsDEM(object):
         rzhist, xe, ye = np.histogram2d(self.x[self.nonan].flatten(),
                                         self.y[self.nonan].flatten(),
                                         bins=[xedges, yedges])
-        self.n_shots = rzhist.transpose()
+        self._n_shots = rzhist.transpose()
 
     def _gap_filter(self):
         """
@@ -166,17 +243,24 @@ class AlsDEM(object):
         but which are in the concex hull of the swath
         """
 
+        # Gap filling raises the processing level from 3 to 4
         self.processing_level = "Level-4 (l4)"
 
-        data_mask = self.n_shots > 0.0
+        # Get the inverted data mask
+        data_mask = ~self.input_data_mask
 
+        # Apply the gap filter
         filter_algorithm = self.cfg.gap_filter["algorithm"]
+
+        # This filter extends the data mask using a maximum filter of
+        # a specified filter width
         if filter_algorithm == "maximum_filter":
             data_mask = maximum_filter(data_mask, **self.cfg.gap_filter["keyw"])
         else:
             raise NotImplementedError("Filter algorithm: %s" % filter_algorithm)
 
-        self.dem_mask = ~data_mask
+        # Update the DEM mask
+        self._dem_mask = ~data_mask
 
     def _align(self):
         """
@@ -260,10 +344,8 @@ class AlsDEM(object):
         Computes the maximum from [width, height] of the gridded DEM
         :return:
         """
-
         height = np.nanmax(self.dem_y) - np.nanmax(self.dem_y)
         width = np.nanmax(self.dem_x) - np.nanmax(self.dem_x)
-
         return np.nanmax([height, width])
 
     @property
@@ -327,6 +409,29 @@ class AlsDEM(object):
         if self.cfg.grid_mapping is not None:
             name, attrs = self.cfg.grid_mapping["name"], self.cfg.grid_mapping["attrs"]
         return name, attrs
+
+    @property
+    def input_data_mask(self):
+        """
+        Compute the mask of the grid (true for masked, false for not masked)
+        :return:
+        """
+
+        # Step 1: Check if grid definition exists
+        if self.dem_x is None:
+            return None
+
+        # Step 2: Check if number of shots per grid cell is already computed
+        # no -> return empty mask with grid dimensions
+        if self._n_shots is None:
+            return np.full(self.dem_x.shape, False)
+        # yes -> return mask (true of _n_shots_per_grid_cell is zero)
+        else:
+            return self._n_shots == 0
+
+    @property
+    def grid_variable_names(self):
+        return self._grid_var.keys()
 
 
 class AlsDEMCfg(object):
