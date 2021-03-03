@@ -440,8 +440,8 @@ class AlsDEM(object):
 
 class AlsDEMCfg(object):
 
-    def __init__(self, input_filter=None, connect_keyw=None, resolution_m=1.0, segment_len_secs=30, method=None, gap_filling=None,
-                 grid_pad_fraction=0.05, projection=None, grid_mapping=None):
+    def __init__(self, input_filter=None, connect_keyw=None, resolution_m=1.0, segment_len_secs=30, method=None,
+                 gap_filling=None, grid_pad_fraction=0.05, projection=None, grid_mapping=None):
         """
         Settings for DEM generation including spatial and temporal resolution, gridding settings and
         target projection
@@ -556,6 +556,7 @@ class ALSGridCollection(object):
 
     def __init__(self, filepaths, res=None, ignore_list=None):
         self.filepaths = filepaths
+        self.ref = None
         self.res = res
         self.ignore_list = ignore_list
         self.grids = []
