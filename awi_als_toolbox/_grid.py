@@ -433,6 +433,10 @@ class AlsDEM(object):
     def grid_variable_names(self):
         return self._grid_var.keys()
 
+    @property
+    def n_shots(self):
+        return np.array(self._n_shots)
+
 
 class AlsDEMCfg(object):
 
