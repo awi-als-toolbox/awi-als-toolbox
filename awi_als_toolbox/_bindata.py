@@ -712,6 +712,21 @@ class ALSPointCloudData(object):
         else:
             return self.segment_window[1][1]
 
+    @property
+    def grid_variable_names(self):
+        """
+        Return a list of variables that can be gridded
+        -> line variables except time, longitude, latitude
+        :return:
+        """
+        grid_variables = list(self.shot_variables)
+        for non_grid_variable in ["timestamp", "longitude", "latitude"]:
+            try:
+                grid_variables.remove(non_grid_variable)
+            except ValueError:
+                pass
+        return grid_variables
+
     def __getattr__(self, attr):
         """
         Modify the attribute getter to provide a shortcut to the data content
