@@ -22,8 +22,6 @@ import scipy.spatial.qhull as qhull
 
 from ._utils import get_yaml_cfg, geo_inverse, get_cls
 
-import time
-
 
 class AlsDEM(object):
     """
