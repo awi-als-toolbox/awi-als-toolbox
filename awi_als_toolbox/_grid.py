@@ -109,8 +109,8 @@ class AlsDEM(object):
         :return: (float, float) lon_0, lat_0
         """
         # Guess projection center
-        lat_0 = np.nanmedian(self.als.latitude)
-        lon_0 = np.nanmedian(self.als.longitude)
+        lat_0 = np.nanmedian(self.als.get("latitude"))
+        lon_0 = np.nanmedian(self.als.get("longitude"))
         return lon_0, lat_0
 
     def _proj(self):
@@ -151,9 +151,9 @@ class AlsDEM(object):
 
         # Prepare the input to ensure no NaN's are fed to the projection
         # -> Remember NaN mask and fill them with dummy values
-        is_nan = np.logical_or(np.isnan(self.als.longitude), np.isnan(self.als.latitude))
+        lon, lat = np.copy(self.als.get("longitude")), np.copy(self.als.get("latitude"))
+        is_nan = np.logical_or(np.isnan(lon), np.isnan(lat))
         nan_mask = np.where(is_nan)
-        lon, lat = np.copy(self.als.longitude), np.copy(self.als.latitude)
         lon[nan_mask] = lon_0
         lat[nan_mask] = lat_0ts
 
@@ -228,7 +228,7 @@ class AlsDEM(object):
             # Do the interpolation for each variable
             for grid_variable_name in self.als.grid_variable_names:
                 logger.info("Grid variable: {}".format(grid_variable_name))
-                variable = getattr(self.als, grid_variable_name)
+                variable = self.als.get(grid_variable_name)
 
                 gridded_var = np.einsum('nj,nj->n', np.take(variable[self.nonan].flatten(), vertices), 
                                         weights).reshape(self.dem_x.shape)
