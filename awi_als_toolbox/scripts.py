@@ -6,6 +6,7 @@ meant to be called by more specific scripts.
 """
 
 import sys
+import multiprocessing
 from pathlib import Path
 
 # This matplotlib setting is necessary if the script
@@ -19,7 +20,8 @@ from . import AirborneLaserScannerFile, AirborneLaserScannerFileV2, AlsDEM
 from .export import AlsDEMNetCDF
 
 
-def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1):
+def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1, use_multiprocessing=False,
+                mp_reserve_cpus=2):
     """
     Grid a binary point cloud file with given grid specification and in segments of
     a given temporal coverage
@@ -27,6 +29,8 @@ def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1):
     :param dem_cfg: (awi_als_toolbox.demgen.AlsDEMCfg):
     :param output_cfg:
     :param file_version:
+    :param use_multiprocessing:
+    :param mp_reserve_cpus:
     :return:
     """
 
@@ -65,9 +69,23 @@ def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1):
     segments = alsfile.get_segment_list(dem_cfg.segment_len_secs)
     n_segments = len(segments)
     logger.info("Split file in %d segments" % n_segments)
+
+    # Substep (Only valid if multi-processing should be used
+    process_pool = None
+    if use_multiprocessing:
+        # Estimate how much workers can be added to the pool
+        # without overloading the CPU
+        n_processes = multiprocessing.cpu_count()
+        n_processes -= mp_reserve_cpus
+        n_processes = n_processes if n_processes > 1 else 1
+        # Create process pool
+        logger.info("Use multi-processing with {} workers".format(n_processes))
+        process_pool = multiprocessing.Pool(n_processes)
+
     for i, (start_sec, stop_sec) in enumerate(segments):
 
         # Extract the segment
+        # NOTE: This includes file I/O
         logger.info("Processing %s [%g:%g] (%g/%g)" % (als_filepath.name, start_sec, stop_sec, i+1, n_segments))
         als = alsfile.get_data(start_sec, stop_sec)
 
@@ -90,16 +108,25 @@ def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1):
             logger.warning(msg)
             continue
 
-        # Grid the data and write the outout in a netCDF file
-        gridding_workflow(als, dem_cfg, output_cfg)
+        # Grid the data and write the output in a netCDF file
+        # This can either be run in parallel or
+        if use_multiprocessing:
+            result = process_pool.apply_async(gridding_workflow, args=(als, dem_cfg, output_cfg, ))
+            # print(result.get())
+        else:
+            gridding_workflow(als, dem_cfg, output_cfg)
+
+    if use_multiprocessing:
+        process_pool.close()
+        process_pool.join()
 
 
 def gridding_workflow(als, dem_cfg, output_cfg):
     """
     Single function gridding and plot creation that can be passed to a multiprocessing process
     :param als: (ALSData) ALS point cloud data
-    :param dem_cfg: (dict) DEM generation settings
-    :param export_dir: (str) the target directory for the gridded netcdfs
+    :param dem_cfg:
+    :param output_cfg:
     :return: None
     """
 
