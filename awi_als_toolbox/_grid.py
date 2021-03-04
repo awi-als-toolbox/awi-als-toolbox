@@ -18,6 +18,7 @@ from loguru import logger
 
 from scipy.interpolate import griddata
 from scipy.ndimage.filters import maximum_filter
+import scipy.spatial.qhull as qhull
 
 from ._utils import get_yaml_cfg, geo_inverse, get_cls
 
@@ -207,16 +208,35 @@ class AlsDEM(object):
 
         # Execute the gridding for all variables
         gridding_algorithm = self.cfg.griddata
-        for grid_variable_name in self.als.grid_variable_names:
-            logger.info("Grid variable: {}".format(grid_variable_name))
-            variable = getattr(self.als, grid_variable_name)
-            if gridding_algorithm == "scipy.griddata":
-                gridded_var = griddata((self.x[self.nonan].flatten(), self.y[self.nonan].flatten()),
-                                       variable[self.nonan].flatten(),
-                                       (self.dem_x, self.dem_y), rescale=True)
-            else:
-                raise NotImplementedError("Gridding algorithm: %s" % self.cfg.griddata)
-            self._grid_var[grid_variable_name] = gridded_var
+        
+        if gridding_algorithm == "scipy.griddata":
+            # Compute vertices and weights of the triangulation
+            logger.info("Triangulation of data points for interpolation")
+            # Triangulation of data points
+            tri = qhull.Delaunay(np.stack([self.x[self.nonan].flatten(),self.y[self.nonan].flatten()],axis=-1))
+            # Find vertices that contain interpolation points
+            simplex = tri.find_simplex(np.stack([self.dem_x.flatten(),self.dem_y.flatten()],axis=-1))
+            vertices = np.take(tri.simplices, simplex, axis=0)
+            # Compute weights of data points for each interpolation point
+            temp = np.take(tri.transform, simplex, axis=0)
+            delta = np.stack([self.dem_x.flatten(),self.dem_y.flatten()],axis=-1) - temp[:, 2]
+            bary = np.einsum('njk,nk->nj', temp[:, :2, :], delta)
+            weights = np.hstack((bary, 1 - bary.sum(axis=1, keepdims=True)))
+            # Filter for points in dem_x,dem_y that lay outside of x,y
+            weights[np.where(np.any(weights<0,axis=1)),:]=np.zeros((3,))*np.nan
+            
+            # Do the interpolation for each variable
+            for grid_variable_name in self.als.grid_variable_names:
+                logger.info("Grid variable: {}".format(grid_variable_name))
+                variable = getattr(self.als, grid_variable_name)
+
+                gridded_var = np.einsum('nj,nj->n', np.take(variable[self.nonan].flatten(), vertices), 
+                                        weights).reshape(self.dem_x.shape)
+                
+                self._grid_var[grid_variable_name] = gridded_var
+                
+        else:
+            raise NotImplementedError("Gridding algorithm: %s" % self.cfg.griddata)
 
     def _grid_statistics(self):
         """
