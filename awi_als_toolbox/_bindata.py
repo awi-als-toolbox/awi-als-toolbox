@@ -536,6 +536,10 @@ class ALSPointCloudData(object):
         # Update the metadata now with the data in place
         self._set_metadata()
 
+    def init_xy(self):
+        self.x = np.empty(self.longitude.shape)*np.NaN
+        self.y = np.empty(self.longitude.shape)*np.NaN
+
     def set_debug_data(self, **kwargs):
         self.debug_data.update(kwargs)
 
