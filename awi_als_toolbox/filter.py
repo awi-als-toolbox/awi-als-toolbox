@@ -14,6 +14,7 @@ from floenavi.polarstern import PolarsternAWIDashboardPos
 from icedrift import GeoReferenceStation, IceCoordinateSystem, GeoPositionData
 from datetime import datetime, timedelta
 import os
+from loguru import logger
 
 class ALSPointCloudFilter(object):
     """ Base class for point cloud filters """
@@ -107,11 +108,12 @@ class IceDriftCorrection(ALSPointCloudFilter):
         :return:
         """
 
+        logger.info("IceDriftCorrection is applied")
         # 1. Initialise IceDriftStation
         self._get_IceDriftStation(als)
 
         # 2. Initialise empty x,y arrays in als for the projection
-        als.init_xy()
+        als.init_IceDriftCorrection()
 
         # 3. mask nan values for faster computation
         nonan = np.where(np.logical_or(np.isfinite(als.longitude), np.isfinite(als.latitude)))
@@ -121,11 +123,14 @@ class IceDriftCorrection(ALSPointCloudFilter):
         als_geo_pos = GeoPositionData(time_als,als.longitude[nonan],als.latitude[nonan])
 
         # 5. Compute projection
-        icepos = self.IceCoordinateSystem.get_xy_coordinates(als_geo_pos)
+        icepos, als.IceCSTransform = self.IceCoordinateSystem.get_xy_coordinates(als_geo_pos, transform_output=True)
 
         # 6. Store projected coordinates
         als.x[nonan] = icepos.xc
         als.y[nonan] = icepos.yc
+
+        # 7. Set IceDriftCorrected
+        als.IceDriftCorrected = True
 
 
     def _get_IceDriftStation(self,als):

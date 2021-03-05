@@ -63,8 +63,16 @@ class AlsDEM(object):
         # TODO: Properly validate data
 
         # Project lon/lat coordinates of shots into cartesian coordinate system
-        # IDEA:
-        self._proj()
+        # If Ice Drift Correction is used no projection is needed
+        try:
+            self.x = self.als.x
+            self.y = self.als.y
+            self.IceDriftCorrection = True
+            logger.info("IceDriftCorrection detected")
+        except AttributeError:
+            self._proj()
+            self.IceDriftCorrection = False
+        
 
         # Grid the data of all variables
         self._griddata()
@@ -203,7 +211,14 @@ class AlsDEM(object):
         self.nonan = np.where(np.logical_or(np.isfinite(self.x), np.isfinite(self.y)))
 
         # Compute longitude, latitude values for grid (x, y) coordinates
-        self.lon, self.lat = self.p(self.dem_x, self.dem_y, inverse=True)
+        # IDC check if self.als has attribute x,y
+        # IDC TODO reverse the IceDriftCorrection is needed here!
+        # IDC else:
+        if self.IceDriftCorrection:
+            self.lon = self.dem_x
+            self.lat = self.dem_y
+        else:
+            self.lon, self.lat = self.p(self.dem_x, self.dem_y, inverse=True)
 
         # Execute the gridding for all variables
         gridding_algorithm = self.cfg.griddata
