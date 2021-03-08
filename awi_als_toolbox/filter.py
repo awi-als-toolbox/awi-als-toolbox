@@ -125,7 +125,7 @@ class IceDriftCorrection(ALSPointCloudFilter):
         als_geo_pos = GeoPositionData(time_als,als.get("longitude")[nonan],als.get("latitude")[nonan])
 
         # 5. Compute projection
-        icepos, als.IceCSTransform = self.IceCoordinateSystem.get_xy_coordinates(als_geo_pos, transform_output=True)
+        icepos = self.IceCoordinateSystem.get_xy_coordinates(als_geo_pos)
 
         # 6. Store projected coordinates
         als.x[nonan] = icepos.xc
@@ -133,6 +133,7 @@ class IceDriftCorrection(ALSPointCloudFilter):
 
         # 7. Set IceDriftCorrected
         als.IceDriftCorrected = True
+        als.IceCoordinateSystem = self.IceCoordinateSystem
 
 
     def _get_IceDriftStation(self,als):
@@ -156,4 +157,4 @@ class IceDriftCorrection(ALSPointCloudFilter):
         else:
             refstat = PolarsternAWIDashboardPos(als.tcs_segment_datetime,als.tce_segment_datetime).reference_station
         
-        self.IceCoordinateSystem = IceCoordinateSystem(refstat)
+        self.IceCoordinateSystem = als.IceCoordinateSystem = IceCoordinateSystem(refstat)
