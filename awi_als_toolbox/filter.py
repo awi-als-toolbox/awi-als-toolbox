@@ -46,7 +46,8 @@ class AtmosphericBackscatterFilter(ALSPointCloudFilter):
         for line_index in np.arange(als.n_lines):
 
             # 1  Compute the median elevation of a line
-            elevations = als.elevation[line_index, :]
+            elevation = als.get("elevation")
+            elevations = elevation[line_index, :]
             line_median = np.nanmedian(elevations)
 
             # 2. Fill nan values with median elevation
@@ -58,7 +59,8 @@ class AtmosphericBackscatterFilter(ALSPointCloudFilter):
             spike_indices = self._get_filter_indices(elevations_nonan, self.cfg["filter_threshold_m"])
 
             # Remove spiky elevations
-            als.elevation[line_index, spike_indices] = np.nan
+            elevation[line_index, spike_indices] = np.nan
+            als.set("elevation", elevation)
 
     @staticmethod
     def _get_filter_indices(vector, filter_treshold):

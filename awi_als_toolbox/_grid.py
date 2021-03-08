@@ -18,6 +18,7 @@ from loguru import logger
 
 from scipy.interpolate import griddata
 from scipy.ndimage.filters import maximum_filter
+import scipy.spatial.qhull as qhull
 
 from ._utils import get_yaml_cfg, geo_inverse, get_cls
 
@@ -116,8 +117,8 @@ class AlsDEM(object):
         :return: (float, float) lon_0, lat_0
         """
         # Guess projection center
-        lat_0 = np.nanmedian(self.als.latitude)
-        lon_0 = np.nanmedian(self.als.longitude)
+        lat_0 = np.nanmedian(self.als.get("latitude"))
+        lon_0 = np.nanmedian(self.als.get("longitude"))
         return lon_0, lat_0
 
     def _proj(self):
@@ -158,9 +159,9 @@ class AlsDEM(object):
 
         # Prepare the input to ensure no NaN's are fed to the projection
         # -> Remember NaN mask and fill them with dummy values
-        is_nan = np.logical_or(np.isnan(self.als.longitude), np.isnan(self.als.latitude))
+        lon, lat = np.copy(self.als.get("longitude")), np.copy(self.als.get("latitude"))
+        is_nan = np.logical_or(np.isnan(lon), np.isnan(lat))
         nan_mask = np.where(is_nan)
-        lon, lat = np.copy(self.als.longitude), np.copy(self.als.latitude)
         lon[nan_mask] = lon_0
         lat[nan_mask] = lat_0ts
 
@@ -222,16 +223,35 @@ class AlsDEM(object):
 
         # Execute the gridding for all variables
         gridding_algorithm = self.cfg.griddata
-        for grid_variable_name in self.als.grid_variable_names:
-            logger.info("Grid variable: {}".format(grid_variable_name))
-            variable = getattr(self.als, grid_variable_name)
-            if gridding_algorithm == "scipy.griddata":
-                gridded_var = griddata((self.x[self.nonan].flatten(), self.y[self.nonan].flatten()),
-                                       variable[self.nonan].flatten(),
-                                       (self.dem_x, self.dem_y), rescale=True)
-            else:
-                raise NotImplementedError("Gridding algorithm: %s" % self.cfg.griddata)
-            self._grid_var[grid_variable_name] = gridded_var
+        
+        if gridding_algorithm == "scipy.griddata":
+            # Compute vertices and weights of the triangulation
+            logger.info("Triangulation of data points for interpolation")
+            # Triangulation of data points
+            tri = qhull.Delaunay(np.stack([self.x[self.nonan].flatten(),self.y[self.nonan].flatten()],axis=-1))
+            # Find vertices that contain interpolation points
+            simplex = tri.find_simplex(np.stack([self.dem_x.flatten(),self.dem_y.flatten()],axis=-1))
+            vertices = np.take(tri.simplices, simplex, axis=0)
+            # Compute weights of data points for each interpolation point
+            temp = np.take(tri.transform, simplex, axis=0)
+            delta = np.stack([self.dem_x.flatten(),self.dem_y.flatten()],axis=-1) - temp[:, 2]
+            bary = np.einsum('njk,nk->nj', temp[:, :2, :], delta)
+            weights = np.hstack((bary, 1 - bary.sum(axis=1, keepdims=True)))
+            # Filter for points in dem_x,dem_y that lay outside of x,y
+            weights[np.where(np.any(weights<0,axis=1)),:]=np.zeros((3,))*np.nan
+            
+            # Do the interpolation for each variable
+            for grid_variable_name in self.als.grid_variable_names:
+                logger.info("Grid variable: {}".format(grid_variable_name))
+                variable = self.als.get(grid_variable_name)
+
+                gridded_var = np.einsum('nj,nj->n', np.take(variable[self.nonan].flatten(), vertices), 
+                                        weights).reshape(self.dem_x.shape)
+                
+                self._grid_var[grid_variable_name] = gridded_var
+                
+        else:
+            raise NotImplementedError("Gridding algorithm: %s" % self.cfg.griddata)
 
     def _grid_statistics(self):
         """

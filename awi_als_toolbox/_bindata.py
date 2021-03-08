@@ -549,8 +549,10 @@ class ALSPointCloudData(object):
         """ Run a series of test to identify illegal data points (e.g. out of bounds lon/lat, etc) """
 
         # Find illegal latitude values
-        illegal_lat = np.where(np.abs(self.latitude) > 90.0)
-        illegal_lon = np.where(np.abs(self.longitude) > 180.0)
+        latitude = self.get("latitude")
+        longitude = self.get("longitude")
+        illegal_lat = np.where(np.abs(latitude) > 90.0)
+        illegal_lon = np.where(np.abs(longitude) > 180.0)
         if illegal_lat[0].size == 0 and illegal_lon[0].size == 0:
             return
         for illegal_values in [illegal_lat, illegal_lon]:
@@ -581,14 +583,16 @@ class ALSPointCloudData(object):
         self.metadata.set_attribute("geospatial_vertical_max", elev_max)
 
         # Compute time parameters
-        tcs = datetime.utcfromtimestamp(float(np.nanmin(self.timestamp)))
-        tce = datetime.utcfromtimestamp(float(np.nanmax(self.timestamp)))
+        timestamp = self.get("timestamp")
+        tcs = datetime.utcfromtimestamp(float(np.nanmin(timestamp)))
+        tce = datetime.utcfromtimestamp(float(np.nanmax(timestamp)))
         self.metadata.set_attribute("time_coverage_start", tcs)
         self.metadata.set_attribute("time_coverage_end", tce)
 
     @property
     def dims(self):
-        return self.elevation.shape
+        elevation = self.get("elevation")
+        return elevation.shape
 
     @property
     def n_lines(self):
@@ -608,20 +612,24 @@ class ALSPointCloudData(object):
 
     @property
     def lat_range(self):
-        return np.nanmin(self.latitude), np.nanmax(self.latitude)
+        latitude = self.get("latitude")
+        return np.nanmin(latitude), np.nanmax(latitude)
 
     @property
     def lon_range(self):
-        return np.nanmin(self.longitude), np.nanmax(self.longitude)
+        longitude = self.get("longitude")
+        return np.nanmin(longitude), np.nanmax(longitude)
 
     @property
     def elev_range(self):
-        return np.nanmin(self.elevation), np.nanmax(self.elevation)
+        elevation = self.get("elevation")
+        return np.nanmin(elevation), np.nanmax(elevation)
 
     @property
     def has_valid_data(self):
         """ Returns a flag whether the object contains valid elevation data """
-        return np.count_nonzero(np.isfinite(self.elevation)) > 0
+        elevation = self.get("elevation")
+        return np.count_nonzero(np.isfinite(elevation)) > 0
 
     @property
     def segment_seconds(self):
@@ -665,8 +673,9 @@ class ALSPointCloudData(object):
         Return the segment start time in seconds since epoch
         :return: (double) seconds since epoch
         """
+        timestamp = self.get("timestamp")
         if self.segment_window is None:
-            return np.floor(np.nanmin(self.time))
+            return np.floor(np.nanmin(timestamp))
         else:
             return self.segment_window[0][0]
 
@@ -676,8 +685,9 @@ class ALSPointCloudData(object):
         Return the segment end time in seconds since epoch
         :return: (double) seconds since epoch
         """
+        timestamp = self.get("timestamp")
         if self.segment_window is None:
-            return np.floor(np.nanmax(self.time))
+            return np.floor(np.nanmax(timestamp))
         else:
             return self.segment_window[1][0]
 
@@ -703,8 +713,9 @@ class ALSPointCloudData(object):
         Return the segment start time in seconds since start of day
         :return: (double) seconds from ALS file
         """
+        timestamp = self.get("timestamp")
         if self.segment_window is None:
-            return np.floor(np.nanmin(self.time))
+            return np.floor(np.nanmin(timestamp))
         else:
             return self.segment_window[0][1]
 
@@ -714,8 +725,9 @@ class ALSPointCloudData(object):
         Return the segment end time in seconds since start of day
         :return: (double) seconds from ALS file
         """
+        timestamp = self.get("timestamp")
         if self.segment_window is None:
-            return np.floor(np.nanmax(self.time))
+            return np.floor(np.nanmax(timestamp))
         else:
             return self.segment_window[1][1]
 
@@ -734,7 +746,7 @@ class ALSPointCloudData(object):
                 pass
         return grid_variables
 
-    def __getattr__(self, attr):
+    def get(self, attr):
         """
         Modify the attribute getter to provide a shortcut to the data content
         :param attr:
@@ -745,7 +757,21 @@ class ALSPointCloudData(object):
         elif attr in self.line_variables:
             return self._line_vars[attr]
         else:
-            raise AttributeError()
+            return None
+
+    def set(self, attr, var):
+        """
+        Modify the attribute getter to provide a shortcut to the data content
+        :param attr:
+        :param var:
+        :return:
+        """
+        if attr in self.shot_variables:
+            self._shot_vars[attr] = var
+        elif attr in self.line_variables:
+            self._line_vars[attr] = var
+        else:
+            return None
 
 
 class ALSMetadata(object):
