@@ -537,8 +537,8 @@ class ALSPointCloudData(object):
         self._set_metadata()
 
     def init_IceDriftCorrection(self):
-        self.x = np.empty(self.longitude.shape)*np.NaN
-        self.y = np.empty(self.longitude.shape)*np.NaN
+        self.x = np.empty(self.get("longitude").shape)*np.NaN
+        self.y = np.empty(self.get("longitude").shape)*np.NaN
         self.IceDriftCorrected = False
         self.IceCSTransform = None
 

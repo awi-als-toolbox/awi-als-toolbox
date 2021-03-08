@@ -118,11 +118,11 @@ class IceDriftCorrection(ALSPointCloudFilter):
         als.init_IceDriftCorrection()
 
         # 3. mask nan values for faster computation
-        nonan = np.where(np.logical_or(np.isfinite(als.longitude), np.isfinite(als.latitude)))
+        nonan = np.where(np.logical_or(np.isfinite(als.get("longitude")), np.isfinite(als.get("latitude"))))
 
         # 4. Generate GeoPositionData object from als
-        time_als = np.array([datetime(1970,1,1,0,0,0) + timedelta(0,isec) for isec in als.timestamp[nonan]])
-        als_geo_pos = GeoPositionData(time_als,als.longitude[nonan],als.latitude[nonan])
+        time_als = np.array([datetime(1970,1,1,0,0,0) + timedelta(0,isec) for isec in als.get("timestamp")[nonan]])
+        als_geo_pos = GeoPositionData(time_als,als.get("longitude")[nonan],als.get("latitude")[nonan])
 
         # 5. Compute projection
         icepos, als.IceCSTransform = self.IceCoordinateSystem.get_xy_coordinates(als_geo_pos, transform_output=True)
