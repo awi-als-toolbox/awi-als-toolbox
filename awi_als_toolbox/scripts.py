@@ -82,44 +82,79 @@ def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1, use_multiproc
         logger.info("Use multi-processing with {} workers".format(n_processes))
         process_pool = multiprocessing.Pool(n_processes)
 
-    for i, (start_sec, stop_sec) in enumerate(segments):
-
-        # Extract the segment
-        # NOTE: This includes file I/O
-        logger.info("Processing %s [%g:%g] (%g/%g)" % (als_filepath.name, start_sec, stop_sec, i+1, n_segments))
-        als = alsfile.get_data(start_sec, stop_sec)
-
-        # TODO: Replace with try/except with actual Exception
-        # except BaseException:
-        #     msg = "Unhandled exception while reading %s:%g-%g -> Skip segment"
-        #     logger.error(msg % (als_filepath.name, start_sec, stop_sec))
-        #     print(sys.exc_info()[1])
-        #     continue
-
-        # Apply any filter defined
-        for input_filter in dem_cfg.get_input_filter():
-            input_filter.apply(als)
-
-        # Validate segment
-        # -> Do not try to grid a segment that has no valid elevations
-        if not als.has_valid_data:
-            msg = "... No valid data in {}:{}-{} -> skipping segment"
-            msg = msg.format(als_filepath.name, start_sec, stop_sec)
-            logger.warning(msg)
-            continue
-
-        # Grid the data and write the output in a netCDF file
-        # This can either be run in parallel or
-        if use_multiprocessing:
-            result = process_pool.apply_async(gridding_workflow, args=(als, dem_cfg, output_cfg, ))
-            # print(result.get())
-        else:
-            gridding_workflow(als, dem_cfg, output_cfg)
+        
+    # Grid the data and write the output in a netCDF file
+    # This can either be run in parallel or
+    if use_multiprocessing:
+        results = [process_pool.apply_async(parallel_wrapper, args=(als_filepath, start_sec, stop_sec, i, 
+                                                                      dem_cfg, output_cfg, file_version)) for i, (start_sec, stop_sec) in enumerate(segments)]
+        print([iresult.get() for iresult in results])
+    else:
+        for i, (start_sec, stop_sec) in enumerate(segments):
+            parallel_wrapper(als_filepath, start_sec, stop_sec, i, dem_cfg, output_cfg, file_version)
+            
+    
 
     if use_multiprocessing:
         process_pool.close()
         process_pool.join()
 
+def parallel_wrapper(als_filepath, start_sec, stop_sec, i, dem_cfg, output_cfg, file_version):
+    """
+    Wrapper of reading and gridding_workflow. May be joined with gridding_workflow in the future
+    """
+    
+    # Input validation
+    als_filepath = Path(als_filepath)
+    if not als_filepath.is_file():
+        logger.error("File does not exist: {}".format(str(als_filepath)))
+        sys.exit(1)
+
+    # Connect to the input file
+    # NOTE: This step will not read the data, but read the header metadata information
+    #       and open the file for sequential reading.
+    logger.info("Open ALS binary file: {} (file version: {})".format(als_filepath.name, file_version))
+    if file_version == 1:
+        alsfile = AirborneLaserScannerFile(als_filepath, **dem_cfg.connect_keyw)
+    elif file_version == 2:
+        alsfile = AirborneLaserScannerFileV2(als_filepath)
+    else:
+        logger.error("Unknown file format: {}".format(dem_cfg.input.file_version))
+        sys.exit(1)
+
+    # --- Step 3: loop over the defined segments ---
+    # Get a segment list based on the suggested segment lengths for the gridding preset
+    # TODO: Evaluate the use of multi-processing for the individual segments.
+    segments = alsfile.get_segment_list(dem_cfg.segment_len_secs)
+    n_segments = len(segments)
+    logger.info("Split file in %d segments" % n_segments)
+
+    
+    # Extract the segment
+    # NOTE: This includes file I/O
+    logger.info("Processing %s [%g:%g] (%g/%g)" % (als_filepath.name, start_sec, stop_sec, i+1, n_segments))
+    als = alsfile.get_data(start_sec, stop_sec)
+
+    # TODO: Replace with try/except with actual Exception
+    # except BaseException:
+    #     msg = "Unhandled exception while reading %s:%g-%g -> Skip segment"
+    #     logger.error(msg % (als_filepath.name, start_sec, stop_sec))
+    #     print(sys.exc_info()[1])
+    #     continue
+
+    # Apply any filter defined
+    for input_filter in dem_cfg.get_input_filter():
+        input_filter.apply(als)
+
+    # Validate segment
+    # -> Do not try to grid a segment that has no valid elevations
+    if not als.has_valid_data:
+        msg = "... No valid data in {}:{}-{} -> skipping segment"
+        msg = msg.format(als_filepath.name, start_sec, stop_sec)
+        logger.warning(msg)
+    else:
+        # Grid the data and write the output in a netCDF file
+        gridding_workflow(als, dem_cfg, output_cfg)
 
 def gridding_workflow(als, dem_cfg, output_cfg):
     """
