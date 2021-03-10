@@ -34,6 +34,60 @@ def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1, use_multiproc
     :return:
     """
 
+    # Get ALS file
+    als_filepath = Path(als_filepath)
+    alsfile = get_als_file(als_filepath, file_version, dem_cfg)
+
+    # --- Step 3: loop over the defined segments ---
+    # Get a segment list based on the suggested segment lengths for the gridding preset
+    # TODO: Evaluate the use of multi-processing for the individual segments.
+    segments = alsfile.get_segment_list(dem_cfg.segment_len_secs)
+    n_segments = len(segments)
+    logger.info("Split file in %d segments" % n_segments)
+
+    # Substep (Only valid if multi-processing should be used
+    process_pool = None
+    if use_multiprocessing:
+        # Estimate how much workers can be added to the pool
+        # without overloading the CPU
+        n_processes = multiprocessing.cpu_count()
+        n_processes -= mp_reserve_cpus
+        n_processes = n_processes if n_processes > 1 else 1
+        # Create process pool
+        logger.info("Use multi-processing with {} workers".format(n_processes))
+        process_pool = multiprocessing.Pool(n_processes)
+
+        
+    # Grid the data and write the output in a netCDF file
+    # This can either be run in parallel or
+    if use_multiprocessing:
+        # Parallel processing of all segments
+        results = [process_pool.apply_async(read_grid_wrapper, args=(als_filepath, dem_cfg, 
+                                                                     output_cfg, file_version,
+                                                                     start_sec, stop_sec, 
+                                                                     i, n_segments)) 
+                   for i, (start_sec, stop_sec) in enumerate(segments)]
+        result =[iresult.get() for iresult in results]
+    else:
+        # Loop over all segments
+        for i, (start_sec, stop_sec) in enumerate(segments):
+            read_grid_wrapper(als_filepath, dem_cfg, output_cfg, file_version,
+                              start_sec, stop_sec, i, n_segments)
+
+    if use_multiprocessing:
+        process_pool.close()
+        process_pool.join()
+
+        
+def get_als_file(als_filepath, file_version, dem_cfg):
+    """
+    Open a binary point cloud file with given grid specification and slice in segments of
+    a given temporal coverage
+    :param als_filepath: (str, pathlib.Path): The full filepath of the binary ALS point cloud file
+    :param dem_cfg: (awi_als_toolbox.demgen.AlsDEMCfg):
+    :param file_version:
+    :return: awi_als_toolbox.ALSPointCloudData
+    """
     # --- Step 1: connect to the ALS binary point cloud file ---
     #
     # At the moment there are two options:
@@ -62,73 +116,17 @@ def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1, use_multiproc
     else:
         logger.error("Unknown file format: {}".format(dem_cfg.input.file_version))
         sys.exit(1)
-
-    # --- Step 3: loop over the defined segments ---
-    # Get a segment list based on the suggested segment lengths for the gridding preset
-    # TODO: Evaluate the use of multi-processing for the individual segments.
-    segments = alsfile.get_segment_list(dem_cfg.segment_len_secs)
-    n_segments = len(segments)
-    logger.info("Split file in %d segments" % n_segments)
-
-    # Substep (Only valid if multi-processing should be used
-    process_pool = None
-    if use_multiprocessing:
-        # Estimate how much workers can be added to the pool
-        # without overloading the CPU
-        n_processes = multiprocessing.cpu_count()
-        n_processes -= mp_reserve_cpus
-        n_processes = n_processes if n_processes > 1 else 1
-        # Create process pool
-        logger.info("Use multi-processing with {} workers".format(n_processes))
-        process_pool = multiprocessing.Pool(n_processes)
-
         
-    # Grid the data and write the output in a netCDF file
-    # This can either be run in parallel or
-    if use_multiprocessing:
-        results = [process_pool.apply_async(parallel_wrapper, args=(als_filepath, start_sec, stop_sec, i, 
-                                                                      dem_cfg, output_cfg, file_version)) for i, (start_sec, stop_sec) in enumerate(segments)]
-        print([iresult.get() for iresult in results])
-    else:
-        for i, (start_sec, stop_sec) in enumerate(segments):
-            parallel_wrapper(als_filepath, start_sec, stop_sec, i, dem_cfg, output_cfg, file_version)
-            
+    return alsfile
+        
     
-
-    if use_multiprocessing:
-        process_pool.close()
-        process_pool.join()
-
-def parallel_wrapper(als_filepath, start_sec, stop_sec, i, dem_cfg, output_cfg, file_version):
+def read_grid_wrapper(als_filepath, dem_cfg, output_cfg, file_version, start_sec, stop_sec, i, n_segments):
     """
     Wrapper of reading and gridding_workflow. May be joined with gridding_workflow in the future
     """
     
-    # Input validation
-    als_filepath = Path(als_filepath)
-    if not als_filepath.is_file():
-        logger.error("File does not exist: {}".format(str(als_filepath)))
-        sys.exit(1)
-
-    # Connect to the input file
-    # NOTE: This step will not read the data, but read the header metadata information
-    #       and open the file for sequential reading.
-    logger.info("Open ALS binary file: {} (file version: {})".format(als_filepath.name, file_version))
-    if file_version == 1:
-        alsfile = AirborneLaserScannerFile(als_filepath, **dem_cfg.connect_keyw)
-    elif file_version == 2:
-        alsfile = AirborneLaserScannerFileV2(als_filepath)
-    else:
-        logger.error("Unknown file format: {}".format(dem_cfg.input.file_version))
-        sys.exit(1)
-
-    # --- Step 3: loop over the defined segments ---
-    # Get a segment list based on the suggested segment lengths for the gridding preset
-    # TODO: Evaluate the use of multi-processing for the individual segments.
-    segments = alsfile.get_segment_list(dem_cfg.segment_len_secs)
-    n_segments = len(segments)
-    logger.info("Split file in %d segments" % n_segments)
-
+    # Get ALS file
+    alsfile = get_als_file(als_filepath, file_version, dem_cfg)
     
     # Extract the segment
     # NOTE: This includes file I/O
@@ -156,6 +154,7 @@ def parallel_wrapper(als_filepath, start_sec, stop_sec, i, dem_cfg, output_cfg, 
         # Grid the data and write the output in a netCDF file
         gridding_workflow(als, dem_cfg, output_cfg)
 
+        
 def gridding_workflow(als, dem_cfg, output_cfg):
     """
     Single function gridding and plot creation that can be passed to a multiprocessing process
