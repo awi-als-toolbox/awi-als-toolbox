@@ -96,12 +96,12 @@ class IceDriftCorrection(ALSPointCloudFilter):
     Corrects for ice drift during data aquisition, using floenavi or Polarstern position
     """
 
-    def __init__(self):
+    def __init__(self,use_polarstern=False):
         """
         Initialize the filter.
         :param filter_threshold_m:
         """
-        super(IceDriftCorrection, self).__init__()
+        super(IceDriftCorrection, self).__init__(use_polarstern=use_polarstern)
 
     def apply(self, als):
         """
@@ -112,7 +112,7 @@ class IceDriftCorrection(ALSPointCloudFilter):
 
         logger.info("IceDriftCorrection is applied")
         # 1. Initialise IceDriftStation
-        self._get_IceDriftStation(als)
+        self._get_IceDriftStation(als,use_polarstern=self.cfg["use_polarstern"])
 
         # 2. Initialise empty x,y arrays in als for the projection
         als.init_IceDriftCorrection()
@@ -136,7 +136,7 @@ class IceDriftCorrection(ALSPointCloudFilter):
         als.IceCoordinateSystem = self.IceCoordinateSystem
 
 
-    def _get_IceDriftStation(self,als):
+    def _get_IceDriftStation(self,als,use_polarstern=False):
         # Check for master solutions of Leg 1-3 in floenavi package
         path_data = os.path.join('/'.join(floenavi.__file__.split('/')[:-2]),'data/master-solution')
         ms_sol = np.array([ifile for ifile in os.listdir(path_data) if ifile.endswith('.csv')])
@@ -147,9 +147,10 @@ class IceDriftCorrection(ALSPointCloudFilter):
         ind_end   = np.where(np.logical_and(als.tce_segment_datetime>=ms_sol_dates[:,0],
                                             als.tce_segment_datetime<=ms_sol_dates[:,1]))[0]
         self.read_floenavi = False
-        if ind_begin.size>0 and ind_end.size>0:
-            if ind_begin==ind_end:
-                self.read_floenavi = True
+        if not use_polarstern:
+            if ind_begin.size>0 and ind_end.size>0:
+                if ind_begin==ind_end:
+                    self.read_floenavi = True
                 
         if self.read_floenavi:
             refstat_csv_file = os.path.join(path_data,ms_sol[ind_begin][0])
