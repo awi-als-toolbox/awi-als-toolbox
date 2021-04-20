@@ -23,6 +23,9 @@ import scipy.spatial.qhull as qhull
 from ._utils import get_yaml_cfg, geo_inverse, get_cls
 
 
+import matplotlib.pylab as plt
+
+
 class AlsDEM(object):
     """
     This class handels the gridding of ALS point cloud data
@@ -590,7 +593,7 @@ class AlsDEMCfg(object):
 
 class ALSGridCollection(object):
 
-    def __init__(self, filepaths, res=None, ignore_list=None):
+    def __init__(self, filepaths, res=None, ignore_list=[]):
         self.filepaths = filepaths
         self.ref = None
         self.res = res
@@ -664,10 +667,11 @@ class ALSGridCollection(object):
             grid_data = ALSL4Grid(filepath)
             self.grids.append(grid_data)
 
-    def get_merged_grid(self):
+    def get_merged_grid(self,return_fnames=False):
         x_min, x_max = self.xc_bounds
         y_min, y_max = self.yc_bounds
-        merged_grid = ALSMergedGrid(x_min, x_max, y_min, y_max, self.res, self.proj4str)
+        merged_grid = ALSMergedGrid(x_min, x_max, y_min, y_max, self.res, self.proj4str,
+                                    return_fnames=return_fnames)
         logger.info("Merge Grids:")
         for i, grid in enumerate(self.grids):
             if i in self.ignore_list:
@@ -806,11 +810,16 @@ class ALSL4Grid(object):
     @property
     def lats(self):
         return self.nc.lat.values
+    
+    @property
+    def store_opt_dispalcements(self,x_off,y_off):
+        self.x_off = x_off
+        self.y_off = y_off
 
 
 class ALSMergedGrid(object):
 
-    def __init__(self, x_min, x_max, y_min, y_max, res_m, proj4str):
+    def __init__(self, x_min, x_max, y_min, y_max, res_m, proj4str,return_fnames=False):
         """
 
         :param x_min:
@@ -827,13 +836,21 @@ class ALSMergedGrid(object):
         self.res = res_m
 
         # Compute the shape of the full grid
-        self.xc = np.linspace(self.x_min, self.x_max, (self.x_max-self.x_min) / res_m)
-        self.yc = np.linspace(self.y_min, self.y_max, (self.y_max - self.y_min) / res_m)
+        self.xc = np.linspace(self.x_min, self.x_max, int((self.x_max-self.x_min) / res_m))
+        self.yc = np.linspace(self.y_min, self.y_max, int((self.y_max - self.y_min) / res_m))
         self.xy = np.meshgrid(self.xc, self.yc)
         self.dims = self.xy[0].shape
         self.grid = np.full(self.dims, np.nan)
         self.lons = np.full(self.dims, np.nan)
         self.lats = np.full(self.dims, np.nan)
+        
+        # Storing information from which file the data comes
+        self.return_fnames = return_fnames
+        if return_fnames:
+            self.fnms = np.empty(self.dims,dtype='object')
+            self.fnms = [[[] for _ in range(a.shape[1])] for _ in range(a.shape[0])]
+            
+            self.npnts = np.zeros(self.dims)
 
         # Compute lon/lat of all grid cells
         self.proj4str = proj4str
@@ -854,11 +871,30 @@ class ALSMergedGrid(object):
         subset_yj += yj_offset
         subset_xi += xi_offset
         merged_valid_indices = (subset_yj, subset_xi)
+        
+        ## Loop over correction factors to improve stitching
+        #non_nan_thres = 500
+        #elev_thres = 0.1
+        #x_cor = 0; y_cor = 0
+        
+        #if np.sum(np.isfinite(self.grid[merged_valid_indices]))>non_nan_thres:
+            
 
         # TODO: Temporary fix to align grid segments, needs improvement on GPS solution
-        self.grid[merged_valid_indices] = grid.value[subset_valid_indices]-np.nanmedian(grid.value)
+        self.grid[merged_valid_indices] = grid.value[subset_valid_indices]#-np.nanmedian(grid.value)
         self.lons[merged_valid_indices] = grid.lons[subset_valid_indices]
         self.lats[merged_valid_indices] = grid.lats[subset_valid_indices]
+        
+        if self.return_fnames:
+            for ilist in self.fnms[merged_valid_indices]: 
+                ilist.append(grid.filepath.name)
+            
+            self.npnts[merged_valid_indices] += 1
+            
+            fig,ax = plt.subplots(1,1,tight_layout=True)
+            ax.imshow(self.grid[::10,::10].T,vmin=24.5,vmax=27)
+            fig.savefig('plot_temp_grid/'+grid.filepath.name[:-3]+'.png',dpi=300)
+            plt.close(fig)
 
     def export_netcdf(self, output_path):
         """
