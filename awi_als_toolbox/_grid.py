@@ -652,11 +652,10 @@ class ALSGridCollection(object):
             grid_data = ALSL4Grid(filepath)
             self.grids.append(grid_data)
 
-    def get_merged_grid(self,return_fnames=False,cfg=None):
+    def get_merged_grid(self,cfg=None):
         x_min, x_max = self.xc_bounds
         y_min, y_max = self.yc_bounds
-        merged_grid = ALSMergedGrid(x_min, x_max, y_min, y_max, self.res, self.proj4str,
-                                    return_fnames=return_fnames,cfg=cfg)
+        merged_grid = ALSMergedGrid(x_min, x_max, y_min, y_max, self.res, self.proj4str,cfg=cfg)
         logger.info("Merge Grids:")
         for i, grid in enumerate(self.grids):
             if i in self.ignore_list:
@@ -804,7 +803,7 @@ class ALSL4Grid(object):
 
 class ALSMergedGrid(object):
 
-    def __init__(self, x_min, x_max, y_min, y_max, res_m, proj4str, return_fnames=False, cfg=None):
+    def __init__(self, x_min, x_max, y_min, y_max, res_m, proj4str, cfg=None):
         """
 
         :param x_min:
@@ -829,8 +828,11 @@ class ALSMergedGrid(object):
         except:
             logger.error("No configuration file provided: only evelation will be gridded")
             self.grid_variable_names = ['elevation']
-        
-        self.export_dir = cfg.export_dir
+
+        try:
+            self.export_dir = cfg.export_dir
+        except:
+            self.export_dir = None
 
         # Compute the shape of the full grid
         self.xc = np.linspace(self.x_min, self.x_max, int((self.x_max-self.x_min) / res_m))
@@ -843,13 +845,6 @@ class ALSMergedGrid(object):
         for grid_variable_name in self.grid_variable_names:
             self.grid[grid_variable_name] = np.full(self.dims, np.nan)
         
-        # Storing information from which file the data comes
-        self.return_fnames = return_fnames
-        if return_fnames:
-            self.fnms = np.empty(self.dims,dtype='object')
-            self.fnms = [[[] for _ in range(a.shape[1])] for _ in range(a.shape[0])]
-            
-            self.npnts = np.zeros(self.dims)
 
         # Compute lon/lat of all grid cells
         self.proj4str = proj4str
@@ -893,17 +888,8 @@ class ALSMergedGrid(object):
         # self.grid[merged_valid_indices] = grid.value[subset_valid_indices]#-np.nanmedian(grid.value)
         for grid_variable_name in self.grid_variable_names:
             self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
+
         
-        if self.return_fnames:
-            for ilist in self.fnms[merged_valid_indices]: 
-                ilist.append(grid.filepath.name)
-            
-            self.npnts[merged_valid_indices] += 1
-            
-            fig,ax = plt.subplots(1,1,tight_layout=True)
-            ax.imshow(self.grid[::10,::10].T,vmin=24.5,vmax=27)
-            fig.savefig('plot_temp_grid/'+grid.filepath.name[:-3]+'.png',dpi=300)
-            plt.close(fig)
 
     def export_netcdf(self):
         """
