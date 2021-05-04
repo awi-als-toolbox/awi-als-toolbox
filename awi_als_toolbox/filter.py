@@ -112,7 +112,7 @@ class IceDriftCorrection(ALSPointCloudFilter):
 
         logger.info("IceDriftCorrection is applied")
         # 1. Initialise IceDriftStation
-        self._get_IceDriftStation(als)
+        self._get_IceDriftStation(als,use_polarstern=self.cfg["use_polarstern"])
 
         # 2. Initialise empty x,y arrays in als for the projection
         als.init_IceDriftCorrection()
