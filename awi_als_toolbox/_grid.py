@@ -846,7 +846,10 @@ class ALSMergedGrid(object):
             logger.error("No configuration file provided: only evelation will be gridded")
             self.grid_variable_names = ['elevation']
         
-        self.export_dir = cfg.export_dir
+        try:
+            self.export_dir = cfg.export_dir
+        except:
+            self.export_dir = None
 
         # Compute the shape of the full grid
         self.xc = np.linspace(self.x_min, self.x_max, int((self.x_max-self.x_min) / res_m))
@@ -862,10 +865,18 @@ class ALSMergedGrid(object):
         # Storing information from which file the data comes
         self.return_fnames = return_fnames
         if return_fnames:
-            self.fnms = np.empty(self.dims,dtype='object')
-            self.fnms = [[[] for _ in range(a.shape[1])] for _ in range(a.shape[0])]
+            #self.fnms = np.empty(self.dims,dtype='object')
+            #self.fnms = [[[] for _ in range(self.fnms.shape[1])] for _ in range(self.fnms.shape[0])]
+            
+            self.fnmmasks = []#np.zeros((1,self.dims[0],self.dims[1])).astype('bool')
+            
+            self.fnms = []
+            
+            self.ifnm = 0
             
             self.npnts = np.zeros(self.dims)
+            
+        self.corpol = np.array([1,0])
 
         # Compute lon/lat of all grid cells
         self.proj4str = proj4str
@@ -908,18 +919,35 @@ class ALSMergedGrid(object):
         self.lats[merged_valid_indices] = grid.lats[subset_valid_indices]
         # self.grid[merged_valid_indices] = grid.value[subset_valid_indices]#-np.nanmedian(grid.value)
         for grid_variable_name in self.grid_variable_names:
-            self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
+            
+            if np.any(np.isfinite(self.grid[grid_variable_name][merged_valid_indices])):
+                mask_overlap =np.where(np.isfinite(self.grid[grid_variable_name][merged_valid_indices]))
+                self.corpol = np.polyfit(grid.nc[grid_variable_name].values[subset_valid_indices][mask_overlap],
+                                         self.grid[grid_variable_name][merged_valid_indices][mask_overlap],deg=self.corpol.size-1)
+                logger.info("new correction polynomial computed: (%.04f,%.04f)" % (self.corpol[0],self.corpol[1]))
+            self.grid[grid_variable_name][merged_valid_indices] = np.polyval(self.corpol,grid.nc[grid_variable_name].values[subset_valid_indices])
+            #self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
         
         if self.return_fnames:
-            for ilist in self.fnms[merged_valid_indices]: 
-                ilist.append(grid.filepath.name)
+            #for ilist in self.fnms[merged_valid_indices]: 
+            #    ilist.append(grid.filepath.name)
+            
+            #if self.ifnm > 0:
+            #    self.fnmmasks = np.vstack([self.fnmmasks,np.zeros((1,self.dims[0],self.dims[1])).astype('bool')])
+            #self.fnmmasks[self.ifnm,merged_valid_indices] = True
+            imask = np.zeros(self.dims).astype('bool')
+            imask[merged_valid_indices] = True
+            self.fnmmasks.append(imask)
+            
+            self.fnms.append(grid.filepath.name)
+            self.ifnm += 1
             
             self.npnts[merged_valid_indices] += 1
             
-            fig,ax = plt.subplots(1,1,tight_layout=True)
-            ax.imshow(self.grid[::10,::10].T,vmin=24.5,vmax=27)
-            fig.savefig('plot_temp_grid/'+grid.filepath.name[:-3]+'.png',dpi=300)
-            plt.close(fig)
+            #fig,ax = plt.subplots(1,1,tight_layout=True)
+            #ax.imshow(self.grid[::10,::10].T,vmin=24.5,vmax=27)
+            #fig.savefig('plot_temp_grid/'+grid.filepath.name[:-3]+'.png',dpi=300)
+            #plt.close(fig)
 
     def export_netcdf(self):
         """
