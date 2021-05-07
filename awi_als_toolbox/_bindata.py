@@ -739,7 +739,7 @@ class ALSPointCloudData(object):
         :return:
         """
         grid_variables = list(self.shot_variables)
-        for non_grid_variable in ["timestamp", "longitude", "latitude"]:
+        for non_grid_variable in ["longitude", "latitude"]:#["timestamp", "longitude", "latitude"]:
             try:
                 grid_variables.remove(non_grid_variable)
             except ValueError:
