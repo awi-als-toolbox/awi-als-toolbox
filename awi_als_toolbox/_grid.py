@@ -17,7 +17,7 @@ from osgeo import gdal, osr
 
 from loguru import logger
 
-from scipy.interpolate import griddata
+from scipy.interpolate import griddata, interp1d
 from scipy.ndimage.filters import maximum_filter
 import scipy.spatial.qhull as qhull
 
@@ -943,24 +943,22 @@ class ALSMergedGrid(object):
                         #self.corpol = np.polyfit(grid.nc[grid_variable_name].values[subset_valid_indices][mask_overlap],
                         #                         self.grid[grid_variable_name][merged_valid_indices][mask_overlap],deg=self.corpol.size-1)
                         self.elev_cor_diff = np.append(self.elev_cor_diff, 
-                                                       ((grid.nc[grid_variable_name].values[subset_valid_indices][mask_overlap]-
-                                                         self.grid[grid_variable_name][merged_valid_indices][mask_overlap])/
-                                                        (grid.nc['timestamp'].values[subset_valid_indices][mask_overlap]-
-                                                         self.grid['timestamp'][merged_valid_indices][mask_overlap])))
+                                                       (grid.nc[grid_variable_name].values[subset_valid_indices][mask_overlap]-
+                                                         self.grid[grid_variable_name][merged_valid_indices][mask_overlap]))#/
+                        #                                (grid.nc['timestamp'].values[subset_valid_indices][mask_overlap]-
+                        #                                 self.grid['timestamp'][merged_valid_indices][mask_overlap])))
                         self.elev_cor_tmpstmp_s = np.append(self.elev_cor_tmpstmp_s, 
                                                             self.grid['timestamp'][merged_valid_indices][mask_overlap])
-                        print(self.elev_cor_tmpstmp_e.shape)
-                        print(grid.nc['timestamp'].values[subset_valid_indices][mask_overlap].shape)
                         self.elev_cor_tmpstmp_e = np.append(self.elev_cor_tmpstmp_e, 
                                                             grid.nc['timestamp'].values[subset_valid_indices][mask_overlap])
-                        logger.info("new correction polynomial computed: (%.04f,%.04f)" % (self.corpol[0],self.corpol[1]))
+                        logger.info("new overlapping region detected: (%i points)" % (self.elev_cor_tmpstmp_e.size))
                     #self.grid[grid_variable_name][merged_valid_indices] = np.polyval(self.corpol,grid.nc[grid_variable_name].values[subset_valid_indices])
                     self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
                 elif self.elev_cor and self.elev_cor_data_avail:
-                    cor_term = self.elev_cor_func(grid.nc['timestamp'].values[subset_valid_indices])
+                    cor_term = self.elev_cor_func(grid.nc['timestamp'].values[subset_valid_indices]-self.elev_cor_t_bins[0])
                     logger.info("elevation correction applied: (min: %f, max: %f)" % (np.min(cor_term),np.max(cor_term)))
-                    self.grid[grid_variable_name][merged_valid_indices] = (cor_term+
-                                                                           grid.nc[grid_variable_name].values[subset_valid_indices])
+                    self.grid[grid_variable_name][merged_valid_indices] = (grid.nc[grid_variable_name].values[subset_valid_indices]-
+                                                                           cor_term)
                     
                 else:
                     self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
@@ -988,7 +986,7 @@ class ALSMergedGrid(object):
             #fig.savefig('plot_temp_grid/'+grid.filepath.name[:-3]+'.png',dpi=300)
             #plt.close(fig)
     
-    def compute_elev_cor(self,smpl_freq=100,smpl_points=200,fourier_deg=200,
+    def compute_elev_cor(self,smpl_freq=100,smpl_points=200,#fourier_deg=200,
                          reset_gridded_fields=False):
         if self.elev_cor and self.elev_cor_diff.size>0:
             ## Compute linear correction term
@@ -999,7 +997,7 @@ class ALSMergedGrid(object):
             # This curve will be the time derivative of the correction term
             # 1. Generate temporal tie points
             self.elev_cor_t_bins = np.linspace(np.min(self.elev_cor_tmpstmp_s[::smpl_freq]),
-                                      np.max(self.elev_cor_tmpstmp_e[::smpl_freq]),
+                                      np.max(self.elev_cor_tmpstmp_e[::smpl_freq])+1,
                                       smpl_points+1)
 
             # 2. Bin start and end time of overlapping segments to tie point bins
@@ -1007,20 +1005,43 @@ class ALSMergedGrid(object):
             bins_e = np.digitize(self.elev_cor_tmpstmp_e[::smpl_freq],self.elev_cor_t_bins)
             
             # 3. Mark which tie points lie within the start and end time
-            matrix = np.zeros((bins_e.size,self.elev_cor_t_bins.size-1))
-            for ip in range(bins_e.size):
-                if bins_e[ip]!=bins_s[ip]:
-                    matrix[ip,bins_s[ip]:bins_e[ip]+1] = 1/matrix[ip,bins_s[ip]:bins_e[ip]+1].size
+            #matrix = np.zeros((bins_e.size,self.elev_cor_t_bins.size-1))
+            #for ip in range(bins_e.size):
+            #    if bins_e[ip]!=bins_s[ip]:
+            #        matrix[ip,bins_s[ip]:bins_e[ip]+1] = 1/matrix[ip,bins_s[ip]:bins_e[ip]+1].size
+            matrix = np.zeros((bins_e.size,self.elev_cor_t_bins.size+1))
+
+            matrix[np.arange(bins_e.size),bins_s] -= 1
+            matrix[np.arange(bins_e.size),bins_e] += 1
+
+            ind_r = np.where(np.any(matrix!=0,axis=1))
+            ind_c = np.where(np.any(matrix!=0,axis=0))
+
+            matrix = matrix[ind_r[0],:]
+            matrix = matrix[:,ind_c[0]]
+                                    
+            # Set correction term for first time step to zero
+            matrix_set_zero = np.zeros(matrix[0,:].shape)
+            matrix_set_zero[0] = 1
+            matrix = np.vstack([matrix_set_zero,matrix])
+
+            solution = np.concatenate([np.array([0]),self.elev_cor_diff[::smpl_freq][ind_r]])
 
             # 4. Find best curve that fits best to all time averages
-            self.elev_cor_c = np.linalg.lstsq(matrix, self.elev_cor_diff[::smpl_freq], rcond=None)[0]
+            self.elev_cor_c = np.linalg.lstsq(matrix, solution, rcond=None)[0]
             
-            # (B) Fit Fourier series to time derivative of correction term
-            self.elev_cor_fft = np.fft.fft(self.elev_cor_c)
-            np.put(self.elev_cor_fft, range(fourier_deg+1, len(self.elev_cor_c)), 0.0)
-            self.elev_cor_freqs = np.fft.fftfreq(self.elev_cor_c.size,np.diff(self.elev_cor_t_bins).mean())
+            ## (B) Fit Fourier series to time derivative of correction term
+            #self.elev_cor_fft = np.fft.fft(self.elev_cor_c)
+            #np.put(self.elev_cor_fft, range(fourier_deg+1, len(self.elev_cor_c)), 0.0)
+            #self.elev_cor_freqs = np.fft.fftfreq(self.elev_cor_c.size,np.diff(self.elev_cor_t_bins[ind_r]).mean())
             
-            self.elev_cor_fourier_deg = fourier_deg
+            #self.elev_cor_fourier_deg = fourier_deg
+            
+            # (B) Cubic Spline Interpolation
+            self.elev_cor_t_c = self.elev_cor_t_bins[ind_c]
+            self.elev_cor_func = interp1d(self.elev_cor_t_bins[ind_c]-self.elev_cor_t_bins[0], 
+                                          self.elev_cor_c, kind='linear',bounds_error=False,
+                                          fill_value=(self.elev_cor_c[0],self.elev_cor_c[-1]))
             
             # Reset gridded fields
             if reset_gridded_fields:
