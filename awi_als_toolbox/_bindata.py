@@ -752,6 +752,8 @@ class ALSPointCloudData(object):
         :param attr:
         :return:
         """
+        if attr=='weights' and not attr in self.line_variables:
+            self.set_weights()
         if attr in self.shot_variables:
             return self._shot_vars[attr]
         elif attr in self.line_variables:
@@ -772,6 +774,15 @@ class ALSPointCloudData(object):
             self._line_vars[attr] = var
         else:
             return None
+        
+    def set_weights(self):
+        """
+        Set weights depending of angle of view
+        """
+        wght = ((1-np.linspace(0,1,self.dims[1]))*np.linspace(0,1,self.dims[1]))
+        wght /= np.max(wght)
+        wght = np.tile(wght,(self.dims[0],1))
+        self._line_vars['weights'] = wght
 
 
 class ALSMetadata(object):
