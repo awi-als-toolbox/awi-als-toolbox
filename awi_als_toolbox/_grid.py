@@ -668,29 +668,35 @@ class ALSGridCollection(object):
             grid_data = ALSL4Grid(filepath)
             self.grids.append(grid_data)
 
-    def get_merged_grid(self,return_fnames=False,elevation_correction=False,cfg=None):
+    def get_merged_grid(self,return_fnames=False,elevation_correction=False,weight_averaging=False,cfg=None):
         x_min, x_max = self.xc_bounds
         y_min, y_max = self.yc_bounds
         merged_grid = ALSMergedGrid(x_min, x_max, y_min, y_max, self.res, self.proj4str,
                                     return_fnames=return_fnames,elevation_correction=elevation_correction,
                                     cfg=cfg)
-        logger.info("Merge Grids:")
-        for i, grid in enumerate(self.grids):
-            if i in self.ignore_list:
-                continue
-            logger.info("... %g / %g done [ref_time:%s]" % (i+1, self.n_grids, grid.reftime))
-            merged_grid.add_grid(grid)
-        logger.info("... %g / %g done" % (self.n_grids, self.n_grids))
         if elevation_correction:
-            logger.info("Apply elevation correction:")
-            merged_grid.compute_elev_cor(reset_gridded_fields=True)
-            logger.info("Regrid elevation data with correction term:")
+            logger.info("1st Merging of Grids for elevation correction:")
             for i, grid in enumerate(self.grids):
                 if i in self.ignore_list:
                     continue
                 logger.info("... %g / %g done [ref_time:%s]" % (i+1, self.n_grids, grid.reftime))
                 merged_grid.add_grid(grid)
             logger.info("... %g / %g done" % (self.n_grids, self.n_grids))
+        
+            logger.info("Apply elevation correction:")
+            merged_grid.compute_elev_cor(reset_gridded_fields=True)
+        logger.info("Merge grids")
+        if weight_averaging:
+            merged_grid.set_weight_averaging()
+            logger.info("Weight averaging is activated")
+        for i, grid in enumerate(self.grids):
+            if i in self.ignore_list:
+                continue
+            logger.info("... %g / %g done [ref_time:%s]" % (i+1, self.n_grids, grid.reftime))
+            merged_grid.add_grid(grid)
+        logger.info("... %g / %g done" % (self.n_grids, self.n_grids))
+        if weight_averaging:
+            merged_grid.finish_weight_averaging()
         return merged_grid
 
     def _get_ref_lonlat(self, ref):
@@ -854,6 +860,8 @@ class ALSMergedGrid(object):
         self.elev_cor_tmpstmp_s = np.array([])
         self.elev_cor_tmpstmp_e = np.array([])
         
+        self.weight_averaging = False
+        
         # Check which variables to grid
         self.coord_names = ['lat', 'lon', 'xc', 'yc', 'time', 'time_bnds']
         self.cfg = cfg
@@ -957,13 +965,28 @@ class ALSMergedGrid(object):
                 elif self.elev_cor and self.elev_cor_data_avail:
                     cor_term = self.elev_cor_func(grid.nc['timestamp'].values[subset_valid_indices]-self.elev_cor_t_bins[0])
                     logger.info("elevation correction applied: (min: %f, max: %f)" % (np.min(cor_term),np.max(cor_term)))
-                    self.grid[grid_variable_name][merged_valid_indices] = (grid.nc[grid_variable_name].values[subset_valid_indices]-
+                    if self.weight_averaging:
+                        self.grid[grid_variable_name][merged_valid_indices] += ((grid.nc[grid_variable_name].values[subset_valid_indices]-
+                                                                                 cor_term)*
+                                                                                grid.nc['weights'].values[subset_valid_indices])
+                    else:
+                        self.grid[grid_variable_name][merged_valid_indices] = (grid.nc[grid_variable_name].values[subset_valid_indices]-
                                                                            cor_term)
                     
                 else:
-                    self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
+                    if self.weight_averaging:
+                        self.grid[grid_variable_name][merged_valid_indices] += (grid.nc[grid_variable_name].values[subset_valid_indices]*
+                                                                                grid.nc['weights'].values[subset_valid_indices])
+                    else:
+                        self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
             else:
-                self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
+                if self.weight_averaging:
+                    self.grid[grid_variable_name][merged_valid_indices] += (grid.nc[grid_variable_name].values[subset_valid_indices]*
+                                                                            grid.nc['weights'].values[subset_valid_indices])
+                else:
+                    self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
+        if self.weight_averaging:
+            self.grid['weights'][merged_valid_indices] += grid.nc['weights'].values[subset_valid_indices]
         
         if self.return_fnames:
             #for ilist in self.fnms[merged_valid_indices]: 
@@ -1140,6 +1163,23 @@ class ALSMergedGrid(object):
     def height(self):
         bounds = self.yc_bounds
         return bounds[1]-bounds[0]
+    
+    def set_weight_averaging(self):
+        self.weight_averaging = True
+        
+        # Reset gridded fields to zero
+        for grid_variable_name in self.grid_variable_names:
+            self.grid[grid_variable_name] = np.zeros(self.dims)
+        
+        # Add gridded field for weights
+        self.grid['weights'] = np.zeros(self.dims)
+        
+    def finish_weight_averaging(self):
+        mask = self.grid['weights']!=0
+        for grid_variable_name in self.grid_variable_names:
+            self.grid[grid_variable_name][mask] = self.grid[grid_variable_name][mask]/self.grid['weights'][mask]
+            self.grid[grid_variable_name][~mask] = np.nan
+
     
     def filename(self, filetype, field_name='als'):
         """

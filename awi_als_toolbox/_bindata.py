@@ -532,6 +532,9 @@ class ALSPointCloudData(object):
         # save data arrays
         self._shot_vars = shot_vars
         self._line_vars = line_vars
+        
+        # add new weights field
+        self.set_weights()
 
         # Update the metadata now with the data in place
         self._set_metadata()
@@ -782,7 +785,7 @@ class ALSPointCloudData(object):
         wght = ((1-np.linspace(0,1,self.dims[1]))*np.linspace(0,1,self.dims[1]))
         wght /= np.max(wght)
         wght = np.tile(wght,(self.dims[0],1))
-        self._line_vars['weights'] = wght
+        self._shot_vars['weights'] = wght
 
 
 class ALSMetadata(object):
