@@ -23,6 +23,7 @@ import scipy.spatial.qhull as qhull
 
 from ._utils import get_yaml_cfg, geo_inverse, get_cls
 
+from datetime import datetime, timedelta
 
 import matplotlib.pylab as plt
 
@@ -668,7 +669,7 @@ class ALSGridCollection(object):
             grid_data = ALSL4Grid(filepath)
             self.grids.append(grid_data)
 
-    def get_merged_grid(self,return_fnames=False,elevation_correction=False,weight_averaging=False,cfg=None):
+    def get_merged_grid(self,return_fnames=False,elevation_correction=False,elevation_uncertainty=False,cfg=None):
         x_min, x_max = self.xc_bounds
         y_min, y_max = self.yc_bounds
         merged_grid = ALSMergedGrid(x_min, x_max, y_min, y_max, self.res, self.proj4str,
@@ -686,17 +687,17 @@ class ALSGridCollection(object):
             logger.info("Apply elevation correction:")
             merged_grid.compute_elev_cor(reset_gridded_fields=True)
         logger.info("Merge grids")
-        if weight_averaging:
-            merged_grid.set_weight_averaging()
-            logger.info("Weight averaging is activated")
+        if elevation_uncertainty:
+            merged_grid.set_elevation_uncertainty()
+            logger.info("Uncertainty computation is activated")
         for i, grid in enumerate(self.grids):
             if i in self.ignore_list:
                 continue
             logger.info("... %g / %g done [ref_time:%s]" % (i+1, self.n_grids, grid.reftime))
             merged_grid.add_grid(grid)
         logger.info("... %g / %g done" % (self.n_grids, self.n_grids))
-        if weight_averaging:
-            merged_grid.finish_weight_averaging()
+        if elevation_uncertainty:
+            merged_grid.finish_elevation_uncertainty()
         return merged_grid
 
     def _get_ref_lonlat(self, ref):
@@ -853,6 +854,7 @@ class ALSMergedGrid(object):
         self.y_max = y_max
         self.res = res_m
         self.reftimes = []
+        self.reftimes_unit = None
         
         self.elev_cor = elevation_correction
         self.elev_cor_data_avail = False
@@ -860,13 +862,13 @@ class ALSMergedGrid(object):
         self.elev_cor_tmpstmp_s = np.array([])
         self.elev_cor_tmpstmp_e = np.array([])
         
-        self.weight_averaging = False
+        self.elevation_uncertainty = False
         
         # Check which variables to grid
         self.coord_names = ['lat', 'lon', 'xc', 'yc', 'time', 'time_bnds']
         self.cfg = cfg
         try:
-            self.grid_variable_names = [i for i in self.cfg.variable_attributes.keys() if i not in self.coord_names]
+            self.grid_variable_names = [i for i in self.cfg.variable_attributes.keys() if i not in self.coord_names and not i.endswith('_uncertainty')]
         except:
             logger.error("No configuration file provided: only evelation will be gridded")
             self.grid_variable_names = ['elevation']
@@ -917,7 +919,8 @@ class ALSMergedGrid(object):
             self.export_dir = grid.filepath.parent
         
         # Add reference time for grid
-        self.reftimes.append(grid.reftime)
+        self.reftimes.append(grid.nc.time.values[0])
+        self.retimes_unit = grid.nc.time.units
 
         # Compute the offset indices between merged grid and grid subset
         xi_offset = int((grid.xc_bounds[0]-self.xc_bounds[0])/self.res)
@@ -947,46 +950,46 @@ class ALSMergedGrid(object):
             if grid_variable_name=='elevation' and 'timestamp' in self.grid_variable_names:
                 if self.elev_cor and not self.elev_cor_data_avail:
                     if np.any(np.isfinite(self.grid[grid_variable_name][merged_valid_indices])):
-                        mask_overlap =np.where(np.isfinite(self.grid[grid_variable_name][merged_valid_indices]))
-                        #self.corpol = np.polyfit(grid.nc[grid_variable_name].values[subset_valid_indices][mask_overlap],
-                        #                         self.grid[grid_variable_name][merged_valid_indices][mask_overlap],deg=self.corpol.size-1)
+                        mask_overlap = np.where(np.isfinite(self.grid[grid_variable_name][merged_valid_indices]))
+                        
                         self.elev_cor_diff = np.append(self.elev_cor_diff, 
                                                        (grid.nc[grid_variable_name].values[subset_valid_indices][mask_overlap]-
-                                                         self.grid[grid_variable_name][merged_valid_indices][mask_overlap]))#/
-                        #                                (grid.nc['timestamp'].values[subset_valid_indices][mask_overlap]-
-                        #                                 self.grid['timestamp'][merged_valid_indices][mask_overlap])))
+                                                         self.grid[grid_variable_name][merged_valid_indices][mask_overlap]))
+                        
                         self.elev_cor_tmpstmp_s = np.append(self.elev_cor_tmpstmp_s, 
                                                             self.grid['timestamp'][merged_valid_indices][mask_overlap])
                         self.elev_cor_tmpstmp_e = np.append(self.elev_cor_tmpstmp_e, 
                                                             grid.nc['timestamp'].values[subset_valid_indices][mask_overlap])
                         logger.info("new overlapping region detected: (%i points)" % (self.elev_cor_tmpstmp_e.size))
-                    #self.grid[grid_variable_name][merged_valid_indices] = np.polyval(self.corpol,grid.nc[grid_variable_name].values[subset_valid_indices])
-                    self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
+                    
+                    cor_term = np.zeros(grid.nc[grid_variable_name].values[subset_valid_indices].shape)
+                
                 elif self.elev_cor and self.elev_cor_data_avail:
                     cor_term = self.elev_cor_func(grid.nc['timestamp'].values[subset_valid_indices]-self.elev_cor_t_bins[0])
                     logger.info("elevation correction applied: (min: %f, max: %f)" % (np.min(cor_term),np.max(cor_term)))
-                    if self.weight_averaging:
-                        self.grid[grid_variable_name][merged_valid_indices] += ((grid.nc[grid_variable_name].values[subset_valid_indices]-
-                                                                                 cor_term)*
-                                                                                grid.nc['weights'].values[subset_valid_indices])
-                    else:
-                        self.grid[grid_variable_name][merged_valid_indices] = (grid.nc[grid_variable_name].values[subset_valid_indices]-
-                                                                           cor_term)
+                                            
+                else:
+                    cor_term = np.zeros(grid.nc[grid_variable_name].values[subset_valid_indices].shape)
+                self.grid[grid_variable_name][merged_valid_indices] = (grid.nc[grid_variable_name].values[subset_valid_indices]-
+                                                                       cor_term)
+                
+                if self.elevation_uncertainty:
+                    # Overwrite all elevation that is smaller than in current grid
+                    mask_max = np.where(self.grid['elevation_max'][merged_valid_indices]<grid.nc['elevation'].values[subset_valid_indices]-cor_term)
+                    self.grid['elevation_max'][(merged_valid_indices[0][mask_max],
+                                                merged_valid_indices[1][mask_max])] = (grid.nc['elevation'].values[subset_valid_indices][mask_max]-
+                                                                                       cor_term[mask_max])
+                    # Overwrite all elevation that is larger than in current grid
+                    mask_min = np.where(self.grid['elevation_min'][merged_valid_indices]>grid.nc['elevation'].values[subset_valid_indices]-cor_term)
+                    self.grid['elevation_min'][(merged_valid_indices[0][mask_min],
+                                                merged_valid_indices[1][mask_min])] = (grid.nc['elevation'].values[subset_valid_indices][mask_min]-
+                                                                                       cor_term[mask_min])
+                    print(np.sum(mask_max),np.sum(mask_min))
                     
-                else:
-                    if self.weight_averaging:
-                        self.grid[grid_variable_name][merged_valid_indices] += (grid.nc[grid_variable_name].values[subset_valid_indices]*
-                                                                                grid.nc['weights'].values[subset_valid_indices])
-                    else:
-                        self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
             else:
-                if self.weight_averaging:
-                    self.grid[grid_variable_name][merged_valid_indices] += (grid.nc[grid_variable_name].values[subset_valid_indices]*
-                                                                            grid.nc['weights'].values[subset_valid_indices])
-                else:
-                    self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
-        if self.weight_averaging:
-            self.grid['weights'][merged_valid_indices] += grid.nc['weights'].values[subset_valid_indices]
+                self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
+                    
+        
         
         if self.return_fnames:
             #for ilist in self.fnms[merged_valid_indices]: 
@@ -1009,7 +1012,7 @@ class ALSMergedGrid(object):
             #fig.savefig('plot_temp_grid/'+grid.filepath.name[:-3]+'.png',dpi=300)
             #plt.close(fig)
     
-    def compute_elev_cor(self,smpl_freq=100,smpl_points=200,#fourier_deg=200,
+    def compute_elev_cor(self,smpl_freq=100,smpl_points=500,#fourier_deg=200,
                          reset_gridded_fields=False):
         if self.elev_cor and self.elev_cor_diff.size>0:
             ## Compute linear correction term
@@ -1079,7 +1082,7 @@ class ALSMergedGrid(object):
             return fft_int_func(self.elev_cor_fft,self.elev_cor_freqs,t-self.elev_cor_t_bins[0],deg=self.elev_cor_fourier_deg)
 
             
-    def export_netcdf(self):
+    def export_netcdf(self, recompute_latlon=True):
         """
         Create a netcdf with the merged grid
         :param output_path:
@@ -1095,9 +1098,27 @@ class ALSMergedGrid(object):
         for grid_variable_name in self.grid_variable_names:
             data_vars[grid_variable_name] = xr.Variable(grid_dims,self.grid[grid_variable_name].astype(np.float32),
                                             attrs=self.cfg.get_var_attrs(grid_variable_name))
-        data_vars["lon"] = xr.Variable(coord_dims, self.lons.astype(np.float32),
+        if recompute_latlon == True:
+            self.reftime = datetime(1970,1,1,0,0,0) + timedelta(0,np.mean(self.reftimes))
+            
+            try:
+                from floenavi.polarstern import PolarsternAWIDashboardPos
+                from icedrift import GeoReferenceStation, IceCoordinateSystem, GeoPositionData
+                logger.info("Compute ice drift corrected lat/lon values for same reference time")
+                
+                refstat = PolarsternAWIDashboardPos(self.reftime,self.reftime).reference_station
+                
+                XC,YC = np.meshgrid(self.xc,self.yc)
+                
+                icepos = IceCoordinateSystem(refstat).get_latlon_coordinates(XC, YC, self.reftime)
+                
+                self.lons = icepos.longitude; self.lats = icepos.latitude
+            except ImportError:
+                logger.error("Install packages floenavi and icedrift for ice drift corrected lat/lon values")
+        
+        data_vars["lon"] = xr.Variable(grid_dims, self.lons.astype(np.float32),
                                        attrs=self.cfg.get_var_attrs("lon"))
-        data_vars["lat"] = xr.Variable(coord_dims, self.lats.astype(np.float32),
+        data_vars["lat"] = xr.Variable(grid_dims, self.lats.astype(np.float32),
                                        attrs=self.cfg.get_var_attrs("lon"))
         #data_vars = {"elevation": xr.Variable(grid_dims, self.grid.astype(np.float32)),
         #             "lon": xr.Variable(coord_dims, self.lons.astype(np.float32)),
@@ -1164,21 +1185,17 @@ class ALSMergedGrid(object):
         bounds = self.yc_bounds
         return bounds[1]-bounds[0]
     
-    def set_weight_averaging(self):
-        self.weight_averaging = True
-        
-        # Reset gridded fields to zero
-        for grid_variable_name in self.grid_variable_names:
-            self.grid[grid_variable_name] = np.zeros(self.dims)
+    def set_elevation_uncertainty(self):
+        self.elevation_uncertainty = True
         
         # Add gridded field for weights
-        self.grid['weights'] = np.zeros(self.dims)
+        self.grid['elevation_max'] = np.full(self.dims, -np.inf)
+        self.grid['elevation_min'] = np.full(self.dims, np.inf)
         
-    def finish_weight_averaging(self):
-        mask = self.grid['weights']!=0
-        for grid_variable_name in self.grid_variable_names:
-            self.grid[grid_variable_name][mask] = self.grid[grid_variable_name][mask]/self.grid['weights'][mask]
-            self.grid[grid_variable_name][~mask] = np.nan
+    def finish_elevation_uncertainty(self):
+        for grid_variable_name in ['elevation_max','elevation_min']:
+            self.grid[grid_variable_name][~np.isfinite(self.grid[grid_variable_name])] = np.nan
+        self.grid['elevation_uncertainty'] = self.grid['elevation_max']-self.grid['elevation_min']
 
     
     def filename(self, filetype, field_name='als'):
@@ -1189,8 +1206,8 @@ class ALSMergedGrid(object):
         """
         try:
             template = str(self.cfg.filenaming)
-            filename = template.format(field_name=field_name,res=self.res,tcs=self.reftimes[0].strftime("%Y%m%dT%H%M%S"), 
-                                       tce=self.reftimes[-1].strftime("%Y%m%dT%H%M%S"),ftype=filetype)
+            filename = template.format(field_name=field_name,res=self.res,tcs=(datetime(1970,1,1,0,0,0) + timedelta(0,self.reftimes[0])).strftime("%Y%m%dT%H%M%S"), 
+                                       tce=(datetime(1970,1,1,0,0,0) + timedelta(0,self.reftimes[-1])).strftime("%Y%m%dT%H%M%S"),ftype=filetype)
             return filename
         except:
             logger.error("No configuration file given")
