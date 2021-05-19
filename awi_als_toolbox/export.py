@@ -18,7 +18,7 @@ class AlsDEMNetCDFCfg(object):
     Container for the netCDF output structure
     """
 
-    def __init__(self, filenaming, global_attributes, variable_attributes, export_dir=None):
+    def __init__(self, filenaming, global_attributes, variable_attributes, export_dir=None, correcting_fields=[]):
         """
 
         :param filenaming:
@@ -29,6 +29,7 @@ class AlsDEMNetCDFCfg(object):
         self.global_attributes = global_attributes
         self.variable_attributes = variable_attributes
         self.export_dir = export_dir
+        self.correcting_fields = correcting_fields
 
     @classmethod
     def from_cfg(cls, yaml_filepath, **kwargs):
