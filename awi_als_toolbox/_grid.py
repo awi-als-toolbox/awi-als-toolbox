@@ -701,16 +701,16 @@ class ALSGridCollection(object):
             merged_grid.reset_gridded_fields()
         logger.info("Merge grids")
         if uncertainty:
-            merged_grid.set_elevation_uncertainty()
-            logger.info("Uncertainty computation is activated")
+            merged_grid.activate_uncertainty()
+
         for i, grid in enumerate(self.grids):
             if i in self.ignore_list:
                 continue
             logger.info("... %g / %g done [ref_time:%s]" % (i+1, self.n_grids, grid.reftime))
             merged_grid.add_grid(grid)
         logger.info("... %g / %g done" % (self.n_grids, self.n_grids))
-        if elevation_uncertainty:
-            merged_grid.finish_elevation_uncertainty()
+        if uncertainty:
+            merged_grid.compute_uncertainty()
         return merged_grid
 
     def _get_ref_lonlat(self, ref):
@@ -869,13 +869,7 @@ class ALSMergedGrid(object):
         self.reftimes = []
         self.reftimes_unit = None
         
-        #D#self.elev_cor = elevation_correction
-        #D#self.elev_cor_data_avail = False
-        #D#self.elev_cor_diff = np.array([])
-        #D#self.elev_cor_tmpstmp_s = np.array([])
-        #D#self.elev_cor_tmpstmp_e = np.array([])
-        
-        self.elevation_uncertainty = False
+        self.uncertainty = False
         
         # Check which variables to grid
         self.coord_names = ['lat', 'lon', 'xc', 'yc', 'time', 'time_bnds']
@@ -884,9 +878,12 @@ class ALSMergedGrid(object):
             self.grid_variable_names = [i for i in self.cfg.variable_attributes.keys() if i not in self.coord_names and not i.endswith('_uncertainty')]
             self.correcting_fields = self.cfg.correcting_fields
             self.correction = {ivar:ALSCorrection(ivar) for ivar in self.correcting_fields}
+            self.uncertainty_fields = [i.split('_')[0] for i in self.cfg.variable_attributes.keys() if i not in self.coord_names and i.endswith('_uncertainty')]
+            logger.info("Unvertainty computation activated for: %s" %", ".join(self.uncertainty_fields))
         except:
             logger.error("No configuration file provided: only evelation will be gridded")
             self.grid_variable_names = ['elevation']
+            self.uncertainty_fields = []
 
         try:
             self.export_dir = cfg.export_dir
@@ -981,28 +978,32 @@ class ALSMergedGrid(object):
                 
                 elif self.correction[grid_variable_name].data_avail:
                     cor_term = self.correction[grid_variable_name].func(grid.nc['timestamp'].values[subset_valid_indices]-self.correction[grid_variable_name].t_bins[0])
-                    logger.info("correction appliedto %s: (min: %f, max: %f)" % (grid_variable_name, np.min(cor_term),np.max(cor_term)))
+                    logger.info("correction applied to %s: (min: %f, max: %f)" % (grid_variable_name, np.min(cor_term),np.max(cor_term)))
                                             
                 else:
                     cor_term = np.zeros(grid.nc[grid_variable_name].values[subset_valid_indices].shape)
-                self.grid[grid_variable_name][merged_valid_indices] = (grid.nc[grid_variable_name].values[subset_valid_indices]-
-                                                                       cor_term)
+                #self.grid[grid_variable_name][merged_valid_indices] = (grid.nc[grid_variable_name].values[subset_valid_indices]-
+                #                                                       cor_term)
                 
-                if self.elevation_uncertainty:
-                    # Overwrite all elevation that is smaller than in current grid
-                    mask_max = np.where(self.grid['elevation_max'][merged_valid_indices]<grid.nc['elevation'].values[subset_valid_indices]-cor_term)
-                    self.grid['elevation_max'][(merged_valid_indices[0][mask_max],
-                                                merged_valid_indices[1][mask_max])] = (grid.nc['elevation'].values[subset_valid_indices][mask_max]-
-                                                                                       cor_term[mask_max])
-                    # Overwrite all elevation that is larger than in current grid
-                    mask_min = np.where(self.grid['elevation_min'][merged_valid_indices]>grid.nc['elevation'].values[subset_valid_indices]-cor_term)
-                    self.grid['elevation_min'][(merged_valid_indices[0][mask_min],
-                                                merged_valid_indices[1][mask_min])] = (grid.nc['elevation'].values[subset_valid_indices][mask_min]-
-                                                                                       cor_term[mask_min])
-                    
+                   
             else:
-                self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
-                    
+                cor_term = np.zeros(grid.nc[grid_variable_name].values[subset_valid_indices].shape)
+                
+            self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices] - cor_term
+
+            if self.uncertainty:
+                if grid_variable_name in self.uncertainty_fields:
+                    # Overwrite all elevation that is smaller than in current grid
+                    mask_max = np.where(self.grid['%s_max' %grid_variable_name][merged_valid_indices]<grid.nc[grid_variable_name].values[subset_valid_indices]-cor_term)
+                    self.grid['%s_max' %grid_variable_name][(merged_valid_indices[0][mask_max],
+                                                             merged_valid_indices[1][mask_max])] = (grid.nc[grid_variable_name].values[subset_valid_indices][mask_max]-
+                                                                                                    cor_term[mask_max])
+                    # Overwrite all elevation that is larger than in current grid
+                    mask_min = np.where(self.grid['%s_min' %grid_variable_name][merged_valid_indices]>grid.nc[grid_variable_name].values[subset_valid_indices]-cor_term)
+                    self.grid['%s_min' %grid_variable_name][(merged_valid_indices[0][mask_min],
+                                                             merged_valid_indices[1][mask_min])] = (grid.nc[grid_variable_name].values[subset_valid_indices][mask_min]-
+                                                                                                    cor_term[mask_min])
+ 
         
         
         if self.return_fnames:
@@ -1127,17 +1128,20 @@ class ALSMergedGrid(object):
         bounds = self.yc_bounds
         return bounds[1]-bounds[0]
     
-    def set_elevation_uncertainty(self):
-        self.elevation_uncertainty = True
+    def activate_uncertainty(self):
+        logger.info("Uncertainty computation is activated")
+        self.uncertainty = True
         
         # Add gridded field for weights
-        self.grid['elevation_max'] = np.full(self.dims, -np.inf)
-        self.grid['elevation_min'] = np.full(self.dims, np.inf)
+        for ivar in self.uncertainty_fields:
+            self.grid['%s_max' %ivar] = np.full(self.dims, -np.inf)
+            self.grid['%s_min' %ivar] = np.full(self.dims, np.inf)
         
-    def finish_elevation_uncertainty(self):
-        for grid_variable_name in ['elevation_max','elevation_min']:
+    def compute_uncertainty(self):
+        for grid_variable_name in [i for i in self.grid_variable_names if i.endswith('_max') or i.endswith('_min')]:
             self.grid[grid_variable_name][~np.isfinite(self.grid[grid_variable_name])] = np.nan
-        self.grid['elevation_uncertainty'] = self.grid['elevation_max']-self.grid['elevation_min']
+        for ivar in self.uncertainty_fields:
+            self.grid['%s_uncertainty' %ivar] = self.grid['%s_max' %ivar]-self.grid['%s_min' %ivar]
 
     
     def filename(self, filetype, field_name='als'):
