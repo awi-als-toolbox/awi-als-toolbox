@@ -12,6 +12,7 @@ import numpy as np
 
 import pyproj
 from pathlib import Path
+from collections import OrderedDict
 from osgeo import gdal, osr
 
 from loguru import logger
@@ -21,6 +22,9 @@ from scipy.ndimage.filters import maximum_filter
 import scipy.spatial.qhull as qhull
 
 from ._utils import get_yaml_cfg, geo_inverse, get_cls
+
+
+import matplotlib.pylab as plt
 
 
 class AlsDEM(object):
@@ -64,8 +68,16 @@ class AlsDEM(object):
         # TODO: Properly validate data
 
         # Project lon/lat coordinates of shots into cartesian coordinate system
-        # IDEA:
-        self._proj()
+        # If Ice Drift Correction is used no projection is needed
+        try:
+            self.x = self.als.x
+            self.y = self.als.y
+            self.IceDriftCorrection = True
+            logger.info("IceDriftCorrection detected")
+        except AttributeError:
+            self._proj()
+            self.IceDriftCorrection = False
+        
 
         # Grid the data of all variables
         self._griddata()
@@ -204,7 +216,15 @@ class AlsDEM(object):
         self.nonan = np.where(np.logical_or(np.isfinite(self.x), np.isfinite(self.y)))
 
         # Compute longitude, latitude values for grid (x, y) coordinates
-        self.lon, self.lat = self.p(self.dem_x, self.dem_y, inverse=True)
+        # IDC check if self.als has attribute x,y
+        # IDC TODO reverse the IceDriftCorrection is needed here!
+        # IDC else:
+        if self.IceDriftCorrection:
+            reftime = self.als.tcs_segment_datetime + 0.5*(self.als.tce_segment_datetime-self.als.tcs_segment_datetime)
+            icepos = self.als.IceCoordinateSystem.get_latlon_coordinates(self.dem_x, self.dem_y, reftime)
+            self.lon ,self.lat = icepos.longitude, icepos.latitude
+        else:
+            self.lon, self.lat = self.p(self.dem_x, self.dem_y, inverse=True)
 
         # Execute the gridding for all variables
         gridding_algorithm = self.cfg.griddata
@@ -574,12 +594,12 @@ class AlsDEMCfg(object):
 
 class ALSGridCollection(object):
 
-    def __init__(self, filepaths, res=None, ignore_list=None):
+    def __init__(self, filepaths, res=None, ignore_list=[]):
         self.filepaths = filepaths
         self.ref = None
         self.res = res
         self.ignore_list = ignore_list
-        self.grids = []
+        self.grids = []        
         self._read_grid_data()
 
     def add_drift_correction_reference(self, ref):
@@ -648,10 +668,10 @@ class ALSGridCollection(object):
             grid_data = ALSL4Grid(filepath)
             self.grids.append(grid_data)
 
-    def get_merged_grid(self):
+    def get_merged_grid(self,cfg=None):
         x_min, x_max = self.xc_bounds
         y_min, y_max = self.yc_bounds
-        merged_grid = ALSMergedGrid(x_min, x_max, y_min, y_max, self.res, self.proj4str)
+        merged_grid = ALSMergedGrid(x_min, x_max, y_min, y_max, self.res, self.proj4str,cfg=cfg)
         logger.info("Merge Grids:")
         for i, grid in enumerate(self.grids):
             if i in self.ignore_list:
@@ -790,11 +810,16 @@ class ALSL4Grid(object):
     @property
     def lats(self):
         return self.nc.lat.values
+    
+    @property
+    def store_opt_dispalcements(self,x_off,y_off):
+        self.x_off = x_off
+        self.y_off = y_off
 
 
 class ALSMergedGrid(object):
 
-    def __init__(self, x_min, x_max, y_min, y_max, res_m, proj4str):
+    def __init__(self, x_min, x_max, y_min, y_max, res_m, proj4str, cfg=None):
         """
 
         :param x_min:
@@ -809,23 +834,49 @@ class ALSMergedGrid(object):
         self.y_min = y_min
         self.y_max = y_max
         self.res = res_m
+        self.reftimes = []
+        
+        # Check which variables to grid
+        self.coord_names = ['lat', 'lon', 'xc', 'yc', 'time', 'time_bnds']
+        self.cfg = cfg
+        try:
+            self.grid_variable_names = [i for i in self.cfg.variable_attributes.keys() if i not in self.coord_names]
+        except:
+            logger.error("No configuration file provided: only evelation will be gridded")
+            self.grid_variable_names = ['elevation']
+
+        try:
+            self.export_dir = cfg.export_dir
+        except:
+            self.export_dir = None
 
         # Compute the shape of the full grid
-        self.xc = np.linspace(self.x_min, self.x_max, (self.x_max-self.x_min) / res_m)
-        self.yc = np.linspace(self.y_min, self.y_max, (self.y_max - self.y_min) / res_m)
+        self.xc = np.linspace(self.x_min, self.x_max, int((self.x_max-self.x_min) / res_m))
+        self.yc = np.linspace(self.y_min, self.y_max, int((self.y_max - self.y_min) / res_m))
         self.xy = np.meshgrid(self.xc, self.yc)
         self.dims = self.xy[0].shape
-        self.grid = np.full(self.dims, np.nan)
         self.lons = np.full(self.dims, np.nan)
         self.lats = np.full(self.dims, np.nan)
+        self.grid = OrderedDict()
+        for grid_variable_name in self.grid_variable_names:
+            self.grid[grid_variable_name] = np.full(self.dims, np.nan)
+        
 
         # Compute lon/lat of all grid cells
         self.proj4str = proj4str
         # logger.info("Compute lon/lat per grid cell (%s)" % proj4str)
         # p = pyproj.Proj(proj4str)
         # self.lon, self.lat = p(self.xy[0], self.xy[1], inverse=True)
+        
+        
 
     def add_grid(self, grid):
+        # Save data directory as export directory if not other specified in cfg file
+        if self.export_dir is None:
+            self.export_dir = grid.filepath.parent
+        
+        # Add reference time for grid
+        self.reftimes.append(grid.reftime)
 
         # Compute the offset indices between merged grid and grid subset
         xi_offset = int((grid.xc_bounds[0]-self.xc_bounds[0])/self.res)
@@ -838,13 +889,25 @@ class ALSMergedGrid(object):
         subset_yj += yj_offset
         subset_xi += xi_offset
         merged_valid_indices = (subset_yj, subset_xi)
+        
+        ## Loop over correction factors to improve stitching
+        #non_nan_thres = 500
+        #elev_thres = 0.1
+        #x_cor = 0; y_cor = 0
+        
+        #if np.sum(np.isfinite(self.grid[merged_valid_indices]))>non_nan_thres:
+            
 
         # TODO: Temporary fix to align grid segments, needs improvement on GPS solution
-        self.grid[merged_valid_indices] = grid.value[subset_valid_indices]-np.nanmedian(grid.value)
         self.lons[merged_valid_indices] = grid.lons[subset_valid_indices]
         self.lats[merged_valid_indices] = grid.lats[subset_valid_indices]
+        # self.grid[merged_valid_indices] = grid.value[subset_valid_indices]#-np.nanmedian(grid.value)
+        for grid_variable_name in self.grid_variable_names:
+            self.grid[grid_variable_name][merged_valid_indices] = grid.nc[grid_variable_name].values[subset_valid_indices]
 
-    def export_netcdf(self, output_path):
+        
+
+    def export_netcdf(self):
         """
         Create a netcdf with the merged grid
         :param output_path:
@@ -856,9 +919,17 @@ class ALSMergedGrid(object):
         coord_dims = ("yc", "xc")
 
         # Collect all data vars
-        data_vars = {"elevation": xr.Variable(grid_dims, self.grid.astype(np.float32)),
-                     "lon": xr.Variable(coord_dims, self.lons.astype(np.float32)),
-                     "lat": xr.Variable(coord_dims, self.lats.astype(np.float32))}
+        data_vars = OrderedDict()
+        for grid_variable_name in self.grid_variable_names:
+            data_vars[grid_variable_name] = xr.Variable(grid_dims,self.grid[grid_variable_name].astype(np.float32),
+                                            attrs=self.cfg.get_var_attrs(grid_variable_name))
+        data_vars["lon"] = xr.Variable(coord_dims, self.lons.astype(np.float32),
+                                       attrs=self.cfg.get_var_attrs("lon"))
+        data_vars["lat"] = xr.Variable(coord_dims, self.lats.astype(np.float32),
+                                       attrs=self.cfg.get_var_attrs("lon"))
+        #data_vars = {"elevation": xr.Variable(grid_dims, self.grid.astype(np.float32)),
+        #             "lon": xr.Variable(coord_dims, self.lons.astype(np.float32)),
+        #             "lat": xr.Variable(coord_dims, self.lats.astype(np.float32))}
 
         # Add grid mapping
         # grid_mapping_name, grid_mapping_attrs = self.grid_mapping_items
@@ -878,9 +949,9 @@ class ALSMergedGrid(object):
         # Turn on compression for all variables
         comp = dict(zlib=True)
         encoding = {var: comp for var in ds.data_vars}
-        ds.to_netcdf(output_path, engine="netcdf4", encoding=encoding)
+        ds.to_netcdf(self.path('nc'), engine="netcdf4", encoding=encoding)
 
-    def export_geotiff(self, output_path):
+    def export_geotiff(self):
         """
         Export a geotiff
         :param output_path:
@@ -893,12 +964,15 @@ class ALSMergedGrid(object):
         wkt = srs.ExportToWkt()
 
         driver = gdal.GetDriverByName('GTiff')
-        dataset = driver.Create(output_path, self.dims[1], self.dims[0], 1, gdal.GDT_Float32)
-        dataset.SetGeoTransform((self.x_min, self.res, 0, self.y_max, 0, -self.res))
-        dataset.SetProjection(wkt)
-        dataset.GetRasterBand(1).WriteArray(np.flipud(self.grid))
-        dataset.GetRasterBand(1).SetNoDataValue(np.nan)
-        dataset.FlushCache()  # Write to disk.
+        
+        for grid_variable_name in self.grid_variable_names:
+            output_path = str(self.path('tiff',field_name=grid_variable_name).absolute())
+            dataset = driver.Create(output_path, self.dims[1], self.dims[0], 1, gdal.GDT_Float32)
+            dataset.SetGeoTransform((self.x_min, self.res, 0, self.y_max, 0, -self.res))
+            dataset.SetProjection(wkt)
+            dataset.GetRasterBand(1).WriteArray(np.flipud(self.grid[grid_variable_name]))
+            dataset.GetRasterBand(1).SetNoDataValue(np.nan)
+            dataset.FlushCache()  # Write to disk.
 
     @property
     def xc_bounds(self):
@@ -917,3 +991,21 @@ class ALSMergedGrid(object):
     def height(self):
         bounds = self.yc_bounds
         return bounds[1]-bounds[0]
+    
+    def filename(self, filetype, field_name='als'):
+        """
+        Construct the filename
+        TODO:
+        :return:
+        """
+        try:
+            template = str(self.cfg.filenaming)
+            filename = template.format(field_name=field_name,res=self.res,tcs=self.reftimes[0].strftime("%Y%m%dT%H%M%S"), 
+                                       tce=self.reftimes[-1].strftime("%Y%m%dT%H%M%S"),ftype=filetype)
+            return filename
+        except:
+            logger.error("No configuration file given")
+            return
+
+    def path(self, filetype, field_name='als'):
+        return Path(self.export_dir) / self.filename(filetype,field_name=field_name)
