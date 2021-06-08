@@ -43,6 +43,21 @@ class AtmosphericBackscatterFilter(ALSPointCloudFilter):
         :return:
         """
 
+        # Filter points outside the [-threshold, threshold] interval around the 
+        # first mode of elevations
+        elevations = als.get('elevation')
+        # Determine elevation of first mode
+        hist,bins = np.histogram(elevations[np.isfinite(elevations)],bins=100)
+        diff = np.diff(np.append(np.zeros((1,)),hist))
+        ind_peak = np.where(np.all([diff[1:]<0,diff[:-1]>0],axis=0))[0][0]
+        min_mode_elev = np.mean(bins[ind_peak:ind_peak+2])
+        threshold = 20
+        # Mask points outside the interval
+        mask = np.where(np.any([elevations>min_mode_elev+threshold,
+                                elevations<min_mode_elev-threshold],axis=0))
+        elevations[mask] = np.nan
+        als.set("elevation", elevations)
+        
         for line_index in np.arange(als.n_lines):
 
             # 1  Compute the median elevation of a line

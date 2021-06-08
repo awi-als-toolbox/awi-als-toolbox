@@ -1142,6 +1142,7 @@ class ALSMergedGrid(object):
             self.grid[grid_variable_name][~np.isfinite(self.grid[grid_variable_name])] = np.nan
         for ivar in self.uncertainty_fields:
             self.grid['%s_uncertainty' %ivar] = self.grid['%s_max' %ivar]-self.grid['%s_min' %ivar]
+            self.grid['%s_uncertainty' %ivar][~np.isfinite(self.grid['%s_uncertainty' %ivar])] = np.nan
 
     
     def filename(self, filetype, field_name='als'):
@@ -1161,6 +1162,7 @@ class ALSMergedGrid(object):
 
     def path(self, filetype, field_name='als'):
         return Path(self.export_dir) / self.filename(filetype,field_name=field_name)
+    
 
     
 class  ALSCorrection(object):
