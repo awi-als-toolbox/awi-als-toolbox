@@ -964,14 +964,19 @@ class ALSMergedGrid(object):
                     if np.any(np.isfinite(self.grid[grid_variable_name][merged_valid_indices])):
                         mask_overlap = np.where(np.isfinite(self.grid[grid_variable_name][merged_valid_indices]))
                         
+                        if mask_overlap[0].size>self.correction[grid_variable_name].smpl_freq:
+                            ifreq = self.correction[grid_variable_name].smpl_freq
+                            logger.info("mask_overlap %i" % (mask_overlap[0].size))
+                        else:
+                            ifreq = 1
                         self.correction[grid_variable_name].diff = np.append(self.correction[grid_variable_name].diff, 
-                                                                             (grid.nc[grid_variable_name].values[subset_valid_indices][mask_overlap]-
-                                                                              self.grid[grid_variable_name][merged_valid_indices][mask_overlap]))
+                                                                             (grid.nc[grid_variable_name].values[subset_valid_indices][mask_overlap][::ifreq]-
+                                                                              self.grid[grid_variable_name][merged_valid_indices][mask_overlap][::ifreq]))
                         
                         self.correction[grid_variable_name].tmpstmp_s = np.append(self.correction[grid_variable_name].tmpstmp_s, 
-                                                                                  self.grid['timestamp'][merged_valid_indices][mask_overlap])
+                                                                                  self.grid['timestamp'][merged_valid_indices][mask_overlap][::ifreq])
                         self.correction[grid_variable_name].tmpstmp_e = np.append(self.correction[grid_variable_name].tmpstmp_e, 
-                                                                                  grid.nc['timestamp'].values[subset_valid_indices][mask_overlap])
+                                                                                  grid.nc['timestamp'].values[subset_valid_indices][mask_overlap][::ifreq])
                         logger.info("new overlapping region detected: (%i points)" % (self.correction[grid_variable_name].tmpstmp_e.size))
                     
                     cor_term = np.zeros(grid.nc[grid_variable_name].values[subset_valid_indices].shape)
@@ -1167,25 +1172,26 @@ class ALSMergedGrid(object):
     
 class  ALSCorrection(object):
 
-    def __init__(self,variable):
+    def __init__(self,variable,smpl_freq=100):
         self.variable = variable
         self.data_avail = False
         self.diff = np.array([])
         self.tmpstmp_s = np.array([])
         self.tmpstmp_e = np.array([]) 
+        self.smpl_freq = smpl_freq
 
-    def compute_cor_func(self,smpl_freq=100,smpl_points=500):
+    def compute_cor_func(self,smpl_points=500):
         if self.diff.size>0:
             # (A) Fit all differences into on time dependent curve
             # This curve will be the time derivative of the correction term
             # 1. Generate temporal tie points
-            self.t_bins = np.linspace(np.min(self.tmpstmp_s[::smpl_freq]),
-                                      np.max(self.tmpstmp_e[::smpl_freq])+1,
+            self.t_bins = np.linspace(np.min(self.tmpstmp_s),
+                                      np.max(self.tmpstmp_e)+1,
                                       smpl_points+1)
 
             # 2. Bin start and end time of overlapping segments to tie point bins
-            bins_s = np.digitize(self.tmpstmp_s[::smpl_freq],self.t_bins)
-            bins_e = np.digitize(self.tmpstmp_e[::smpl_freq],self.t_bins)
+            bins_s = np.digitize(self.tmpstmp_s,self.t_bins)
+            bins_e = np.digitize(self.tmpstmp_e,self.t_bins)
             
             # 3. Mark which tie points lie within the start and end time
             matrix = np.zeros((bins_e.size,self.t_bins.size+1))
@@ -1204,7 +1210,7 @@ class  ALSCorrection(object):
             matrix_set_zero[0] = 1
             matrix = np.vstack([matrix_set_zero,matrix])
 
-            solution = np.concatenate([np.array([0]),self.diff[::smpl_freq][ind_r]])
+            solution = np.concatenate([np.array([0]),self.diff[ind_r]])
 
             # 4. Find best curve that fits best to all time averages
             self.c = np.linalg.lstsq(matrix, solution, rcond=None)[0]
