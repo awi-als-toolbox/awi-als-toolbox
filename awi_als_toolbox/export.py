@@ -141,7 +141,7 @@ class AlsDEMNetCDF(object):
         """
         template = str(self.cfg.filenaming)
         filename = template.format(proc_level=self.dem.fn_proc_level, res=self.dem.fn_res,
-                        tcs=self.dem.fn_tcs, tce=self.dem.fn_tce)
+                                   tcs=self.dem.fn_tcs, tce=self.dem.fn_tce)
         return filename
 
     @property

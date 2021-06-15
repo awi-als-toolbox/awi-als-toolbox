@@ -1073,8 +1073,8 @@ class ALSMergedGrid(object):
         
         data_vars["lon"] = xr.Variable(grid_dims, self.lons.astype(np.float32),
                                        attrs=self.cfg.get_var_attrs("lon"))
-        data_vars["lat"] = xr.Variable(grid_dims, self.lats.astype(np.float32),
-                                       attrs=self.cfg.get_var_attrs("lon"))
+        data_vars["lat"] = xr.Variable(coord_dims, self.lats.astype(np.float32),
+                                       attrs=self.cfg.get_var_attrs("lat"))
 
         # Collect all coords
         coords = {"time": xr.Variable("time", [np.mean(self.reftimes)], attrs=self.cfg.get_var_attrs("time")),
