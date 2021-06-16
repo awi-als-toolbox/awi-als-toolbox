@@ -39,7 +39,7 @@ class AlsDEM(object):
         """
         Create a gridded DEM from point cloud airborne laser scanner (ALS) data
         :param als: awi_als_toolbox._bindata.ALSData object
-        :param cfg: awi_als_toolbox._grid.AlsDEMCfg
+        :param cfg: awi_als_toolbox._grid.AlsDEMCfg object
         """
 
         # Store inputs
