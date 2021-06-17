@@ -13,10 +13,12 @@ from datetime import datetime, timedelta
 import os
 from loguru import logger
 from scipy.signal import medfilt, convolve,find_peaks
+from scipy.interpolate import interp1d
 from pathlib import Path
 import matplotlib.pylab as plt
 from collections import OrderedDict
 import multiprocessing
+import pandas as pd
 
 from awi_als_toolbox.filter import ALSPointCloudFilter
 from awi_als_toolbox.scripts import get_als_file, get_als_segments
@@ -173,13 +175,17 @@ class DetectOpenWater(ALSPointCloudFilter):
         
 
         
+         
+            
+
+        
 class AlsFreeboardConversion(object):
     """
     This class reads all binary ALS data (.alsbin2-files), detects open water, interpolates
     the sea surface heigth, and computes the snow freeboard from the elevation data.
     """
     
-    def __init__(self, cfg=None):
+    def __init__(self, cfg=None, export_file=None):
         """
         Create a Freeboard Conversion object iwth cfg files
         :param cfg: dictionary containg the key arguments for OpenWaterDetection and SeaDurfaceInterpolation
@@ -192,29 +198,36 @@ class AlsFreeboardConversion(object):
             if ikey not in self.cfg.keys():
                 self.cfg[ikey] = {}
                 
+        # Determine common csv-file to output open water points
+        if export_file is not None:
+            # Overwrite keyword from the config file
+            logger.info('export_file from config file is overwritten by class keyword')
+            self.cfg['OpenWaterDetection']['export_file'] = export_file
+                
+        if 'export_file' in self.cfg['OpenWaterDetection'].keys():
+            self.export_file = Path(self.cfg['OpenWaterDetection']['export_file']).absolute()
+        else:
+            self.export_file = Path('open_water_points.csv').absolute()
+        logger.info('Open water points are exported to: %s' %str(self.export_file))
+        
+        # Initialise interpolation function
+        self.func = None
+            
+                
     def open_water_detection(self, als_filepaths, dem_cfg, file_version=1,
-                             ow_export_file=None, use_multiprocessing=False,mp_reserve_cpus=2):
+                             use_multiprocessing=False,mp_reserve_cpus=2):
         """
         Function that detects open water points in a list of .alsbin2-files. All open water points are 
         outputted to a common csv-file.
         :param als_filepaths: list of paths to .alsbin2-files to process
         :param ow_export_file: path to csv-file to export all open water points
         """
-        
-        # Generate common csv-file to output open water points
-        if ow_export_file is not None:
-            self.cfg['OpenWaterDetection']['export_file'] = ow_export_file
             
-            with Path(self.cfg['OpenWaterDetection']["export_file"]).absolute().open(mode='w') as f:
-                f.write('timestamp,longitude,latitude,elevation,reflectance,reflectance (diff to mean)\n')
-                f.close()
-                
-        if 'export_file' in self.cfg['OpenWaterDetection'].keys():
-            self.export_file = self.cfg['OpenWaterDetection']['export_file']
-        else:
-            self.export_file = Path('open_water_points.csv').absolute()
+        # Overwrite or initialise common csv-file to output open water points
+        with self.export_file.open(mode='w') as f:
+            f.write('timestamp,longitude,latitude,elevation,reflectance,reflectance (diff to mean)\n')
+            f.close()
             
-        
         # Get all segments from ALS files
         self.segments = get_als_segments(als_filepaths, dem_cfg, file_version=file_version)
         
@@ -250,8 +263,50 @@ class AlsFreeboardConversion(object):
                 open_water_detection_wrapper(self.segments['als_filepath'][i], dem_cfg, file_version, 
                                              self.segments['start_sec'][i], self.segments['stop_sec'][i], 
                                              self.segments['i'][i], self.segments['n_segments'][i], self.cfg)
+                
+                
+    def read_csv(self):
+        """
+        Initialise freeboard conversion object from csv file to compute sea surface elevation
+        :param csvfile: csv file with computed open water points
+        """
+        try:
+            # 1. Data frame with all open water points
+            df = pd.read_csv(self.export_file)
+            df = df.sort_values('timestamp')
+            
+            # 2. Compute interpolation function
+            # filter double values
+            tow, eow = np.unique(np.stack([df['timestamp'],df['elevation']]),axis=1)
+            # fit function
+            self.func = interp1d(tow,eow,kind='linear',fill_value='extrapolate',bounds_error=False)
+            
+        except AttributeError:
+            logger.error('export_file is not specified')
+    
+    
+    @property        
+    def interp_func(self):
+        if self.func is None:
+            self.read_csv()
+        return self.func
+            
         
+    def freeboard_computation(self, als):
+        # 1. Compute freeboard from elevation
 
+        freeboard = als.get('elevation').copy()
+        # Compute for each line one correction term
+        for iline in range(als.n_lines):
+            freeboard[iline,:] -= self.interp_func(np.nanmean(als.get('timestamp')[iline,:]))
+
+        # 2. Store freeboard in ALSPointCloudData
+        als._shot_vars['freeboard'] = freeboard
+   
+        
+        
+        
+        
         
 def open_water_detection_wrapper(als_filepath, dem_cfg, file_version, start_sec, stop_sec, i, n_segments, cfg):
     # Read ALS Data
