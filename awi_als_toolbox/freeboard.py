@@ -14,6 +14,7 @@ import os
 from loguru import logger
 from scipy.signal import medfilt, convolve,find_peaks
 from scipy.interpolate import interp1d
+from scipy.ndimage import uniform_filter1d
 from pathlib import Path
 import matplotlib.pylab as plt
 from collections import OrderedDict
@@ -21,7 +22,7 @@ import multiprocessing
 import pandas as pd
 
 from awi_als_toolbox.filter import ALSPointCloudFilter
-from awi_als_toolbox.scripts import get_als_file, get_als_segments
+import awi_als_toolbox.scripts as scripts
 from awi_als_toolbox import AlsDEMCfg
 
 
@@ -31,8 +32,8 @@ class DetectOpenWater(ALSPointCloudFilter):
     """
 
     def __init__(self,fov_resolution=0.05550000071525574,kernel_size=5,
-                 rflc_thres=3.0,elev_tol=0.02,elev_segment=0.2,rflc_minmax=False,
-                 export_file='open_water_points.csv'):
+                 rflc_thres=3.0,elev_tol=0.04,elev_segment=0.2,rflc_minmax=False,
+                 rflc_tol=1.0, cluster_size=25, export_file='open_water_points.csv'):
         """
         Initialize the filter.
         :param fov_resolution: Angular resolution of the field of view
@@ -44,10 +45,138 @@ class DetectOpenWater(ALSPointCloudFilter):
         """
         super(DetectOpenWater, self).__init__(fov_resolution=fov_resolution,kernel_size=kernel_size,
                                               rflc_thres=rflc_thres,elev_tol=elev_tol,
-                                              elev_segment=elev_segment,rflc_minmax=rflc_minmax,
-                                              export_file=export_file)
+                                              elev_segment=elev_segment,rflc_minmax=rflc_minmax,rflc_tol=rflc_tol,
+                                              cluster_size=cluster_size,export_file=export_file)
 
-    def apply(self, als, do_plot=False):
+#     def apply(self, als, do_plot=False, savefig=False):
+#         """
+#         Apply the filter for all lines in the ALS data container
+#         :param als:
+#         :return:
+#         """
+
+#         logger.info("OpenWaterDetection is applied")
+        
+#         # 1. Find NADIR pixels in data
+        
+#         # Mask aircraft roll data for nans
+#         mask_roll = np.where(np.isfinite(als.get('aircraft_roll')))
+#         # Indexes of all NADIR pixels
+#         nadir_inds = (mask_roll[0],(np.ones(mask_roll[0].size)*als.n_shots/2+als.get('aircraft_roll')[mask_roll]/self.cfg["fov_resolution"]).astype('int'))
+#         # Subset NADIR elevation and reflectance data
+#         elev_nadir = als.get('elevation')[nadir_inds]
+#         rflc_nadir = als.get('reflectance')[nadir_inds]
+#         # Mask for invalid pixels
+#         mask = np.where(np.logical_and(np.isfinite(elev_nadir),np.isfinite(rflc_nadir)))
+
+        
+#         # 2. Smoothen elevation and reflectance data for gridscale variations
+        
+#         kernel_size = self.cfg["kernel_size"]
+#         #elev_nadir_m = medfilt(elev_nadir[mask],kernel_size=kernel_size)
+#         #rflc_nadir_m = medfilt(rflc_nadir[mask],kernel_size=kernel_size)
+#         elev_nadir_m = convolve(elev_nadir[mask],np.ones((kernel_size,))/kernel_size)
+#         rflc_nadir_m = convolve(rflc_nadir[mask],np.ones((kernel_size,))/kernel_size)
+        
+        
+#         # 3. Detect local minima in elevation and reflectance data
+        
+#         # Miminal width of the peaks
+#         min_width = kernel_size
+#         # Peaks (minima) in elevation data (threshold used elevation<min(elevation)+elev_segment)
+#         elev_peaks_m, _ = find_peaks(-elev_nadir_m, height=0.5*np.nanmax(-elev_nadir_m)+0.5*np.median(-elev_nadir_m),width=min_width)
+#         # Peaks (minima) in reflectance data
+#         rflc_peaks_m, _ = find_peaks(-rflc_nadir_m,width=min_width)
+#         # Peaks (maxima) in reflectance data
+#         if self.cfg["rflc_minmax"]:
+#             logger.info(" - using also maxima of reflectance for open water detection")
+#             rflc_max_m, _ = find_peaks(rflc_nadir_m,width=min_width)
+
+        
+#         # 4. Quality checks of detected peaks
+        
+#         # Check for reflectance threshold
+#         rflc_thres = self.cfg["rflc_thres"]
+#         rflc_peaks_m = rflc_peaks_m[(np.mean(rflc_nadir_m)-rflc_nadir_m[rflc_peaks_m])>rflc_thres]
+#         if self.cfg["rflc_minmax"]:
+#             rflc_max_m = rflc_max_m[(rflc_nadir_m[rflc_max_m]-np.mean(rflc_nadir_m))>rflc_thres]
+#             # Combine filtered minima and maxima for further analyis
+#             rflc_peaks_m = np.concatenate([rflc_peaks_m,rflc_max_m])
+
+#         # Check for colocated peaks in elevation and reflectance
+#         if elev_peaks_m.size>0 and rflc_peaks_m.size>0:
+#             peaks_m = elev_peaks_m[[np.any(np.abs(rflc_peaks_m-ielev)<kernel_size/2) for ielev in elev_peaks_m]]
+#         else:
+#             peaks_m = np.array([])
+
+#         # Peaks in globale index
+#         peaks = mask[0][np.array([ipeak-int(kernel_size/2)+
+#                                   np.argmin(elev_nadir[mask][ipeak-int(kernel_size/2):ipeak+int(kernel_size/2)+1]) 
+#                                   for ipeak in peaks_m]).astype('int')]
+        
+
+#         # Check for peaks relation to global minimum
+#         elev_tol = self.cfg["elev_tol"]
+#         elev_grad = self.cfg["elev_segment"]/als.n_lines
+#         globmin = np.nanmin(elev_nadir)
+#         iglobmin = np.where(elev_nadir==np.nanmin(elev_nadir))[0][0]
+#         peaks_glob = peaks[np.abs(elev_nadir[peaks]-globmin)<=np.abs(peaks-iglobmin)*elev_grad+elev_tol]
+        
+        
+#         # 5. Indexes of open water points
+#         open_water_inds = (nadir_inds[0][peaks_glob],nadir_inds[1][peaks_glob])
+#         logger.info(" - number of open water references detected: %i" %(peaks_glob.size))
+        
+        
+#         # 5a. Cluster points around peaks for more stable values
+#         rflc_tol = self.cfg["rflc_tol"]
+#         cluster_size=self.cfg["cluster_size"]
+#         elev_cluster = []
+#         tmp_cluster = []
+#         x_cluster = []
+#         for i,peak in enumerate(peaks_glob):
+#             ix = nadir_inds[0][peak]; iy = nadir_inds[1][peak]
+#             cluster = np.all([als.get('elevation')[ix-cluster_size:ix+cluster_size,
+#                                                    iy-cluster_size:iy+cluster_size]<als.get('elevation')[ix,iy]+2*elev_tol,
+#                               als.get('reflectance')[ix-cluster_size:ix+cluster_size,
+#                                                    iy-cluster_size:iy+cluster_size]<als.get('reflectance')[ix,iy]+2*rflc_tol],axis=0)
+#             print(cluster.shape,np.sum(cluster))
+#             elev_cluster.append(np.nanmean(als.get('elevation')[ix-cluster_size:ix+cluster_size,
+#                                                                 iy-cluster_size:iy+cluster_size][cluster]))
+#             tmp_cluster.append(np.nanmean(als.get('timestamp')[ix-cluster_size:ix+cluster_size,
+#                                                                iy-cluster_size:iy+cluster_size][cluster]))
+#             x_cluster.append(np.mean(np.where(cluster)[0][0])+ix)
+            
+#         print(x_cluster,elev_cluster)
+        
+#         # 6. (optional) plot results of open water detection
+#         if do_plot:
+#             fig,ax = plt.subplots(2,2,sharex=True, figsize=(10,6))
+
+#             ax[0,0].pcolormesh(als.get('elevation').T)
+#             ax[0,0].plot(nadir_inds[0],nadir_inds[1],'k--')
+#             ax[0,0].plot(nadir_inds[0][peaks],nadir_inds[1][peaks],'kx')
+#             ax[0,0].plot(nadir_inds[0][peaks_glob],nadir_inds[1][peaks_glob],'rx')
+#             ax[0,1].pcolormesh(als.get('reflectance').T)
+#             ax[0,1].plot(nadir_inds[0],nadir_inds[1],'k--')
+#             ax[0,1].plot(nadir_inds[0][peaks],nadir_inds[1][peaks],'kx')
+#             ax[0,1].plot(nadir_inds[0][peaks_glob],nadir_inds[1][peaks_glob],'rx')
+
+#             ax[1,0].plot(elev_nadir)
+#             ax[1,0].plot(peaks_glob, elev_nadir[peaks_glob], "+")
+#             ax[1,0].plot(x_cluster,elev_cluster,'.')
+
+#             ax[1,1].plot(rflc_nadir)
+#             ax[1,1].plot(peaks_glob, rflc_nadir[peaks_glob], "+")
+            
+#             if savefig:
+#                 fig.savefig(Path('Open_water_detection_%s.jpg' %als.tcs_segment_datetime), dpi=300)
+         
+        
+#         # 7. Export open water points
+#         self._export_open_water_points((nadir_inds[0][peaks_glob],nadir_inds[1][peaks_glob]),als)
+        
+    def apply(self, als, do_plot=False, savefig=False):
         """
         Apply the filter for all lines in the ALS data container
         :param als:
@@ -72,83 +201,95 @@ class DetectOpenWater(ALSPointCloudFilter):
         # 2. Smoothen elevation and reflectance data for gridscale variations
         
         kernel_size = self.cfg["kernel_size"]
-        elev_nadir_m = medfilt(elev_nadir[mask],kernel_size=kernel_size)
-        rflc_nadir_m = medfilt(rflc_nadir[mask],kernel_size=kernel_size)
+        #elev_nadir_m = medfilt(elev_nadir[mask],kernel_size=kernel_size)
+        #rflc_nadir_m = medfilt(rflc_nadir[mask],kernel_size=kernel_size)
+        elev_nadir_m = uniform_filter1d(elev_nadir[mask],kernel_size)
+        rflc_nadir_m = uniform_filter1d(rflc_nadir[mask],kernel_size)
         
         
-        # 3. Detect local minima in elevation and reflectance data
+        # 3. Detect global elevation minimum
+        globmin = np.nanmin(elev_nadir_m)
+        iglobmin = np.where(elev_nadir_m==globmin)[0][0]
+        print(iglobmin,globmin)
         
-        # Miminal width of the peaks
-        min_width = kernel_size
-        # Peaks (minima) in elevation data (threshold used elevation<min(elevation)+elev_segment)
-        elev_peaks_m, _ = find_peaks(-elev_nadir_m, height=0.9*np.nanmax(-elev_nadir_m)+0.1*np.median(-elev_nadir_m),width=min_width)
-        # Peaks (minima) in reflectance data
-        rflc_peaks_m, _ = find_peaks(-rflc_nadir_m,width=min_width)
-        # Peaks (maxima) in reflectance data
-        if self.cfg["rflc_minmax"]:
-            logger.info(" - using also maxima of reflectance for open water detection")
-            rflc_max_m, _ = find_peaks(rflc_nadir_m,width=min_width)
-
         
-        # 4. Quality checks of detected peaks
-        
-        # Check for reflectance threshold
-        rflc_thres = self.cfg["rflc_thres"]
-        rflc_peaks_m = rflc_peaks_m[(np.mean(rflc_nadir_m)-rflc_nadir_m[rflc_peaks_m])>rflc_thres]
-        if self.cfg["rflc_minmax"]:
-            rflc_max_m = rflc_max_m[(rflc_nadir_m[rflc_max_m]-np.mean(rflc_nadir_m))>rflc_thres]
-            # Combine filtered minima and maxima for further analyis
-            rflc_peaks_m = np.concatenate([rflc_peaks_m,rflc_max_m])
-
-        # Check for colocated peaks in elevation and reflectance
-        if elev_peaks_m.size>0 and rflc_peaks_m.size>0:
-            peaks_m = elev_peaks_m[[np.any(np.abs(rflc_peaks_m-ielev)<kernel_size/2) for ielev in elev_peaks_m]]
-        else:
-            peaks_m = np.array([])
-
-        # Peaks in globale index
-        peaks = mask[0][np.array([ipeak-int(kernel_size/2)+
-                                  np.argmin(elev_nadir[mask][ipeak-int(kernel_size/2):ipeak+int(kernel_size/2)+1]) 
-                                  for ipeak in peaks_m]).astype('int')]
-        
-
-        # Check for peaks relation to global minimum
+        # 4. Collect list of potential open water points
         elev_tol = self.cfg["elev_tol"]
         elev_grad = self.cfg["elev_segment"]/als.n_lines
-        globmin = np.nanmin(elev_nadir)
-        iglobmin = np.where(elev_nadir==np.nanmin(elev_nadir))[0][0]
-        peaks_glob = peaks[np.abs(elev_nadir[peaks]-globmin)<=np.abs(peaks-iglobmin)*elev_grad+elev_tol]
+        owp = np.arange(elev_nadir.size)[np.abs(elev_nadir-globmin)<=np.abs(np.arange(elev_nadir.size)-iglobmin)*elev_grad+2*elev_tol]
+        print(owp)
+        
+        # 5. Check reflectance of potential points
+        rflc_thres = self.cfg["rflc_thres"]
+        rflc_owp = rflc_nadir[owp]
+        if self.cfg["rflc_minmax"]:
+            logger.info(" - using also maxima of reflectance for open water detection")
+            mask = np.abs(rflc_owp - np.nanmean(rflc_nadir_m))> rflc_thres
+        else:
+            mask = np.nanmean(rflc_nadir_m) - rflc_owp > rflc_thres
+        
+        owp = owp[mask]
+        print(owp)
+        rflc_owp = rflc_owp[mask]
         
         
-        # 5. Indexes of open water points
-        open_water_inds = (nadir_inds[0][peaks_glob],nadir_inds[1][peaks_glob])
-        logger.info(" - number of open water references detected: %i" %(peaks_glob.size))
+        # 5. Cluster open water points
+        # - Find distant clusters
+        cluster_size=self.cfg["cluster_size"]
+        cluster_breaks = np.where(np.diff(owp)>cluster_size)[0]
+        print(cluster_breaks)
+        cluster_breaks = np.append(cluster_breaks, owp.size)
+        print(cluster_breaks)
+        
+        # - extract mean information of the clusters
+        ind_start = 0
+        cluster_info = []
+        
+        rflc_mean = np.nanmean(als.get('reflectance'))
+        
+        for i in cluster_breaks:
+            inds_cluster = (nadir_inds[0][owp][ind_start:i],nadir_inds[1][owp][ind_start:i])
+            cluster_info.append((np.nanmean(als.get('timestamp')[inds_cluster]),
+                                 np.nanmean(als.get('longitude')[inds_cluster]),
+                                 np.nanmean(als.get('latitude')[inds_cluster]),
+                                 np.nanmean(als.get('elevation')[inds_cluster]),
+                                 np.nanmean(als.get('reflectance')[inds_cluster]),
+                                 np.nanmean(als.get('reflectance')[inds_cluster])-rflc_mean))
+            print(cluster_info[-1])
+            ind_start = i + 1
         
         
         # 6. (optional) plot results of open water detection
         if do_plot:
-            fig,ax = plt.subplots(2,2,sharex=True)
+            fig,ax = plt.subplots(2,2,sharex=True, figsize=(10,6))
 
             ax[0,0].pcolormesh(als.get('elevation').T)
             ax[0,0].plot(nadir_inds[0],nadir_inds[1],'k--')
-            ax[0,0].plot(nadir_inds[0][peaks],nadir_inds[1][peaks],'kx')
-            ax[0,0].plot(nadir_inds[0][peaks_glob],nadir_inds[1][peaks_glob],'rx')
+    
             ax[0,1].pcolormesh(als.get('reflectance').T)
             ax[0,1].plot(nadir_inds[0],nadir_inds[1],'k--')
-            ax[0,1].plot(nadir_inds[0][peaks],nadir_inds[1][peaks],'kx')
-            ax[0,1].plot(nadir_inds[0][peaks_glob],nadir_inds[1][peaks_glob],'rx')
 
             ax[1,0].plot(elev_nadir)
-            ax[1,0].plot(peaks_glob, elev_nadir[peaks_glob], "+")
-
+            
             ax[1,1].plot(rflc_nadir)
-            ax[1,1].plot(peaks_glob, rflc_nadir[peaks_glob], "+")
+
+            ind_start = 0 
+            for i in cluster_breaks:
+                ax[0,0].plot(nadir_inds[0][owp[ind_start:i]],nadir_inds[1][owp[ind_start:i]],'r.')
+                ax[0,1].plot(nadir_inds[0][owp[ind_start:i]],nadir_inds[1][owp[ind_start:i]],'r.')
+                ax[1,0].plot(owp[ind_start:i], elev_nadir[owp[ind_start:i]], ".")
+                ax[1,1].plot(owp[ind_start:i], rflc_nadir[owp[ind_start:i]], ".")
+                ind_start = i + 1
+            
+            if savefig:
+                fig.savefig(Path('Open_water_detection_%s.jpg' %als.tcs_segment_datetime), dpi=300)
          
         
         # 7. Export open water points
-        self._export_open_water_points((nadir_inds[0][peaks_glob],nadir_inds[1][peaks_glob]),als)
-        
-  
+        #self._export_open_water_points((nadir_inds[0][peaks_glob],nadir_inds[1][peaks_glob]),als)
+        self._export_open_water_clusters(cluster_info,als)
+
+    
     def _export_open_water_points(self, inds_peak, als):
         rflc_mean = np.nanmean(als.get('reflectance'))
         for ix,iy in zip(inds_peak[0],inds_peak[1]):
@@ -160,11 +301,19 @@ class DetectOpenWater(ALSPointCloudFilter):
                                                              als.get('reflectance')[ix,iy],
                                                              als.get('reflectance')[ix,iy]-rflc_mean))
                 export_file.close()
+                
+    def _export_open_water_clusters(self, cluster_info, als):
+        rflc_mean = np.nanmean(als.get('reflectance'))
+        for icluster in cluster_info:
+            with self._get_export() as export_file:
+                export_file.write('%.15f,%.15f,%.15f,%f,%f,%f\n' %icluster)
+                export_file.close()
         
         
     def _get_export(self):
         # Check if file exists
         export_file = Path(self.cfg["export_file"]).absolute()
+        print(export_file)
         if not export_file.is_file():
             # Otherwise create new file with header
             with export_file.open(mode='w') as f:
@@ -229,7 +378,7 @@ class AlsFreeboardConversion(object):
             f.close()
             
         # Get all segments from ALS files
-        self.segments = get_als_segments(als_filepaths, dem_cfg, file_version=file_version)
+        self.segments = scripts.get_als_segments(als_filepaths, dem_cfg, file_version=file_version)
         
         # Substep (Only valid if multi-processing should be used
         process_pool = None
@@ -310,7 +459,7 @@ class AlsFreeboardConversion(object):
         
 def open_water_detection_wrapper(als_filepath, dem_cfg, file_version, start_sec, stop_sec, i, n_segments, cfg):
     # Read ALS Data
-    alsfile = get_als_file(Path(als_filepath), file_version, dem_cfg)
+    alsfile = scripts.get_als_file(Path(als_filepath), file_version, dem_cfg)
     
     logger.info("Processing %s: [%g:%g] (%g/%g)" % (str(als_filepath), start_sec, stop_sec, i+1, n_segments))
     als = alsfile.get_data(start_sec, stop_sec)
@@ -319,5 +468,5 @@ def open_water_detection_wrapper(als_filepath, dem_cfg, file_version, start_sec,
     owfilter = DetectOpenWater(**cfg['OpenWaterDetection'])
     
     # detect open water
-    owfilter.apply(als)
+    owfilter.apply(als,do_plot=True)
     

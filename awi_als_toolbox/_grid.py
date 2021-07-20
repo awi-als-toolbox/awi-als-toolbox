@@ -21,11 +21,13 @@ from scipy.interpolate import griddata, interp1d
 from scipy.ndimage.filters import maximum_filter
 import scipy.spatial.qhull as qhull
 
-from ._utils import get_yaml_cfg, geo_inverse, get_cls
+import pandas as pd
 
 from datetime import datetime, timedelta
 
 import matplotlib.pylab as plt
+
+from ._utils import get_yaml_cfg, geo_inverse, get_cls
 
 
 class AlsDEM(object):
@@ -482,7 +484,7 @@ class AlsDEM(object):
 class AlsDEMCfg(object):
 
     def __init__(self, input_filter=None, connect_keyw=None, resolution_m=1.0, segment_len_secs=30, method=None,
-                 gap_filling=None, grid_pad_fraction=0.05, projection=None, grid_mapping=None):
+                 gap_filling=None, grid_pad_fraction=0.05, projection=None, grid_mapping=None, freeboard=None):
         """
         Settings for DEM generation including spatial and temporal resolution, gridding settings and
         target projection
@@ -531,6 +533,10 @@ class AlsDEMCfg(object):
         # Grid Mapping
         # same information as projection, but in a format for netCDF grid mapping variable
         self.grid_mapping = grid_mapping
+        
+        # Freeboard Conversion
+        self.freeboard = freeboard
+        
 
     @classmethod
     def from_cfg(cls, yaml_filepath):
@@ -696,7 +702,16 @@ class ALSGridCollection(object):
             logger.info("Apply elevation correction:")
             # Compute correction function for each field in correcting_fields
             for ivar in merged_grid.correcting_fields:
-                merged_grid.correction[ivar].compute_cor_func()
+                print(ivar)
+                if ivar=='freeboard':
+                    # Read timings of open water points
+                    owfile = Path(self.filepaths[0]).parent.joinpath('open_water_points.csv')
+                    df = pd.read_csv(owfile)
+                    df = df.sort_values('timestamp')
+                    zero_times = np.array(df['timestamp'])
+                else:
+                    zero_times = None
+                merged_grid.correction[ivar].compute_cor_func(zero_times=zero_times)
             # Reset gridded fields for new computation with correction term
             merged_grid.reset_gridded_fields()
         logger.info("Merge grids")
@@ -1180,7 +1195,7 @@ class  ALSCorrection(object):
         self.tmpstmp_e = np.array([]) 
         self.smpl_freq = smpl_freq
 
-    def compute_cor_func(self,smpl_points=500):
+    def compute_cor_func(self, smpl_points=500, zero_times=None):
         if self.diff.size>0:
             # (A) Fit all differences into on time dependent curve
             # This curve will be the time derivative of the correction term
@@ -1198,19 +1213,28 @@ class  ALSCorrection(object):
 
             matrix[np.arange(bins_e.size),bins_s] -= 1
             matrix[np.arange(bins_e.size),bins_e] += 1
-
+                 
+            # Set correction term for zero for some times
+            if zero_times is None:
+                ind_zero = [0]
+            else:
+                ind_zero = np.digitize(zero_times,self.t_bins)
+                ind_zero[ind_zero<=0] = 0
+                ind_zero[ind_zero>=self.t_bins.size] = self.t_bins.size-1
+            for iind in ind_zero:
+                matrix_set_zero = np.zeros(matrix[0,:].shape)
+                matrix_set_zero[iind] = 1
+                matrix = np.vstack([matrix_set_zero,matrix])
+                    
+            # Remove empty rows and columns
             ind_r = np.where(np.any(matrix!=0,axis=1))
             ind_c = np.where(np.any(matrix!=0,axis=0))
 
             matrix = matrix[ind_r[0],:]
             matrix = matrix[:,ind_c[0]]
-                                    
-            # Set correction term for first time step to zero
-            matrix_set_zero = np.zeros(matrix[0,:].shape)
-            matrix_set_zero[0] = 1
-            matrix = np.vstack([matrix_set_zero,matrix])
 
-            solution = np.concatenate([np.array([0]),self.diff[ind_r]])
+            # Initialize solution vector with differences in overlapping regions
+            solution = np.concatenate([np.zeros((len(ind_zero))),self.diff])[ind_r]
 
             # 4. Find best curve that fits best to all time averages
             self.c = np.linalg.lstsq(matrix, solution, rcond=None)[0]

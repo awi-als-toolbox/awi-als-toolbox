@@ -18,6 +18,8 @@ from loguru import logger
 
 from . import AirborneLaserScannerFile, AirborneLaserScannerFileV2, AlsDEM
 from .export import AlsDEMNetCDF
+import awi_als_toolbox.freeboard as freeboard
+
 
 
 def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1, use_multiprocessing=False,
@@ -180,6 +182,11 @@ def read_grid_wrapper(als_filepath, dem_cfg, output_cfg, file_version, start_sec
     # Apply any filter defined
     for input_filter in dem_cfg.get_input_filter():
         input_filter.apply(als)
+        
+    # Apply freeboard conversion
+    if 'freeboard' in output_cfg.variable_attributes.keys():
+        ALSfreeboard = freeboard.AlsFreeboardConversion(cfg=dem_cfg.freeboard)
+        ALSfreeboard.freeboard_computation(als)
 
     # Validate segment
     # -> Do not try to grid a segment that has no valid elevations
