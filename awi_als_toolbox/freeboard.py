@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 import os
 from loguru import logger
 from scipy.signal import medfilt, convolve,find_peaks
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, UnivariateSpline
 from scipy.ndimage import uniform_filter1d
 from pathlib import Path
 import matplotlib.pylab as plt
@@ -210,14 +210,13 @@ class DetectOpenWater(ALSPointCloudFilter):
         # 3. Detect global elevation minimum
         globmin = np.nanmin(elev_nadir_m)
         iglobmin = np.where(elev_nadir_m==globmin)[0][0]
-        print(iglobmin,globmin)
         
         
         # 4. Collect list of potential open water points
         elev_tol = self.cfg["elev_tol"]
         elev_grad = self.cfg["elev_segment"]/als.n_lines
         owp = np.arange(elev_nadir.size)[np.abs(elev_nadir-globmin)<=np.abs(np.arange(elev_nadir.size)-iglobmin)*elev_grad+2*elev_tol]
-        print(owp)
+        
         
         # 5. Check reflectance of potential points
         rflc_thres = self.cfg["rflc_thres"]
@@ -229,7 +228,6 @@ class DetectOpenWater(ALSPointCloudFilter):
             mask = np.nanmean(rflc_nadir_m) - rflc_owp > rflc_thres
         
         owp = owp[mask]
-        print(owp)
         rflc_owp = rflc_owp[mask]
         
         
@@ -237,9 +235,7 @@ class DetectOpenWater(ALSPointCloudFilter):
         # - Find distant clusters
         cluster_size=self.cfg["cluster_size"]
         cluster_breaks = np.where(np.diff(owp)>cluster_size)[0]
-        print(cluster_breaks)
         cluster_breaks = np.append(cluster_breaks, owp.size)
-        print(cluster_breaks)
         
         # - extract mean information of the clusters
         ind_start = 0
@@ -248,14 +244,15 @@ class DetectOpenWater(ALSPointCloudFilter):
         rflc_mean = np.nanmean(als.get('reflectance'))
         
         for i in cluster_breaks:
-            inds_cluster = (nadir_inds[0][owp][ind_start:i],nadir_inds[1][owp][ind_start:i])
-            cluster_info.append((np.nanmean(als.get('timestamp')[inds_cluster]),
-                                 np.nanmean(als.get('longitude')[inds_cluster]),
-                                 np.nanmean(als.get('latitude')[inds_cluster]),
-                                 np.nanmean(als.get('elevation')[inds_cluster]),
-                                 np.nanmean(als.get('reflectance')[inds_cluster]),
-                                 np.nanmean(als.get('reflectance')[inds_cluster])-rflc_mean))
-            print(cluster_info[-1])
+            if ind_start!=i:
+                inds_cluster = (nadir_inds[0][owp][ind_start:i],nadir_inds[1][owp][ind_start:i])
+                cluster_info.append((np.nanmean(als.get('timestamp')[inds_cluster]),
+                                     np.nanmean(als.get('longitude')[inds_cluster]),
+                                     np.nanmean(als.get('latitude')[inds_cluster]),
+                                     np.nanmean(als.get('elevation')[inds_cluster]),
+                                     np.nanmean(als.get('reflectance')[inds_cluster]),
+                                     np.nanmean(als.get('reflectance')[inds_cluster])-rflc_mean))
+                
             ind_start = i + 1
         
         
@@ -301,6 +298,7 @@ class DetectOpenWater(ALSPointCloudFilter):
                                                              als.get('reflectance')[ix,iy],
                                                              als.get('reflectance')[ix,iy]-rflc_mean))
                 export_file.close()
+                
                 
     def _export_open_water_clusters(self, cluster_info, als):
         rflc_mean = np.nanmean(als.get('reflectance'))
@@ -428,7 +426,8 @@ class AlsFreeboardConversion(object):
             # filter double values
             tow, eow = np.unique(np.stack([df['timestamp'],df['elevation']]),axis=1)
             # fit function
-            self.func = interp1d(tow,eow,kind='linear',fill_value='extrapolate',bounds_error=False)
+            #self.func = interp1d(tow,eow,kind='linear',fill_value='extrapolate',bounds_error=False)
+            self.func = UnivariateSpline(tow,eow,s=0.03,ext='const')
             
         except AttributeError:
             logger.error('export_file is not specified')
@@ -468,5 +467,5 @@ def open_water_detection_wrapper(als_filepath, dem_cfg, file_version, start_sec,
     owfilter = DetectOpenWater(**cfg['OpenWaterDetection'])
     
     # detect open water
-    owfilter.apply(als,do_plot=True)
+    owfilter.apply(als,do_plot=True, savefig=True)
     

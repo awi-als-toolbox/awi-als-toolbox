@@ -1195,14 +1195,41 @@ class  ALSCorrection(object):
         self.tmpstmp_e = np.array([]) 
         self.smpl_freq = smpl_freq
 
-    def compute_cor_func(self, smpl_points=500, zero_times=None):
+    def compute_cor_func(self, smpl_points=500, zero_times=None, zero_int=1):
         if self.diff.size>0:
             # (A) Fit all differences into on time dependent curve
             # This curve will be the time derivative of the correction term
             # 1. Generate temporal tie points
-            self.t_bins = np.linspace(np.min(self.tmpstmp_s),
-                                      np.max(self.tmpstmp_e)+1,
-                                      smpl_points+1)
+            # 1.1 Check for zero_times (time points where correction should be zero)
+            if zero_times is None:
+                self.t_bins = np.linspace(np.min(self.tmpstmp_s),
+                                          np.max(self.tmpstmp_e)+1,
+                                          smpl_points+1)
+            else:
+                # Generate bins around zero_times
+                t0_s = zero_times-0.5*zero_int
+                t0_e = zero_times+0.5*zero_int
+                
+                tb0 = [t0_s[0]]
+                for i in range(t0_s.size-1):
+                    if t0_s[i+1] > t0_e[i]:
+                        tb0.append(t0_e[i])
+                        tb0.append(t0_s[i+1])
+                    else:
+                        tb0.append(np.mean([t0_s[i+1], t0_e[i]]))
+                
+                # Generate other bins
+                t_bins = np.linspace(np.min(self.tmpstmp_s),
+                                     np.max(self.tmpstmp_e)+1,
+                                     smpl_points+1)
+                
+                # Merge both bins together
+                self.t_bins = tb0
+                for ibin in t_bins:
+                    if np.all(np.abs(np.array(tb0)-ibin)>0.5*zero_int):
+                        self.t_bins.append(ibin)
+                self.t_bins = np.sort(np.array(self.t_bins))
+                
 
             # 2. Bin start and end time of overlapping segments to tie point bins
             bins_s = np.digitize(self.tmpstmp_s,self.t_bins)
@@ -1246,3 +1273,56 @@ class  ALSCorrection(object):
                                  fill_value=(self.c[0],self.c[-1]))
             
             self.data_avail = True
+
+            
+#     def compute_cor_func(self, smpl_points=500, zero_times=None):
+#         if self.diff.size>0:
+#             # (A) Fit all differences into on time dependent curve
+#             # This curve will be the time derivative of the correction term
+#             # 1. Generate temporal tie points
+#             self.t_bins = np.linspace(np.min(self.tmpstmp_s),
+#                                       np.max(self.tmpstmp_e)+1,
+#                                       smpl_points+1)
+
+#             # 2. Bin start and end time of overlapping segments to tie point bins
+#             bins_s = np.digitize(self.tmpstmp_s,self.t_bins)
+#             bins_e = np.digitize(self.tmpstmp_e,self.t_bins)
+            
+#             # 3. Mark which tie points lie within the start and end time
+#             matrix = np.zeros((bins_e.size,self.t_bins.size+1))
+
+#             matrix[np.arange(bins_e.size),bins_s] -= 1
+#             matrix[np.arange(bins_e.size),bins_e] += 1
+                 
+#             # Set correction term for zero for some times
+#             if zero_times is None:
+#                 ind_zero = [0]
+#             else:
+#                 ind_zero = np.digitize(zero_times,self.t_bins)
+#                 ind_zero[ind_zero<=0] = 0
+#                 ind_zero[ind_zero>=self.t_bins.size] = self.t_bins.size-1
+#             for iind in ind_zero:
+#                 matrix_set_zero = np.zeros(matrix[0,:].shape)
+#                 matrix_set_zero[iind] = 1
+#                 matrix = np.vstack([matrix_set_zero,matrix])
+                    
+#             # Remove empty rows and columns
+#             ind_r = np.where(np.any(matrix!=0,axis=1))
+#             ind_c = np.where(np.any(matrix!=0,axis=0))
+
+#             matrix = matrix[ind_r[0],:]
+#             matrix = matrix[:,ind_c[0]]
+
+#             # Initialize solution vector with differences in overlapping regions
+#             solution = np.concatenate([np.zeros((len(ind_zero))),self.diff])[ind_r]
+
+#             # 4. Find best curve that fits best to all time averages
+#             self.c = np.linalg.lstsq(matrix, solution, rcond=None)[0]
+            
+#             # (B) Linear Interpolation
+#             self.t_c = self.t_bins[ind_c]
+#             self.func = interp1d(self.t_bins[ind_c]-self.t_bins[0], 
+#                                  self.c, kind='linear',bounds_error=False,
+#                                  fill_value=(self.c[0],self.c[-1]))
+            
+#             self.data_avail = True
