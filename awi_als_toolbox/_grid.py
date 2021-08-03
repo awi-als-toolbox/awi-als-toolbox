@@ -1232,11 +1232,16 @@ class  ALSCorrection(object):
                 
 
             # 2. Bin start and end time of overlapping segments to tie point bins
-            bins_s = np.digitize(self.tmpstmp_s,self.t_bins)
-            bins_e = np.digitize(self.tmpstmp_e,self.t_bins)
+            bins_s = np.digitize(self.tmpstmp_s,self.t_bins)-1
+            bins_e = np.digitize(self.tmpstmp_e,self.t_bins)-1
+            print(bins_s.min(),bins_s.max())
+            print(bins_e.min(),bins_e.max())
+            print(self.t_bins[-1]-self.tmpstmp_e[bins_e==smpl_points])
             
             # 3. Mark which tie points lie within the start and end time
-            matrix = np.zeros((bins_e.size,self.t_bins.size+1))
+            matrix = np.zeros((bins_e.size,self.t_bins.size-1))
+            
+            print(matrix.shape)
 
             matrix[np.arange(bins_e.size),bins_s] -= 1
             matrix[np.arange(bins_e.size),bins_e] += 1
@@ -1244,21 +1249,33 @@ class  ALSCorrection(object):
             # Set correction term for zero for some times
             if zero_times is None:
                 ind_zero = [0]
+                #for iind in ind_zero:
+                #    # Add condition that c[ind_zero] should be zero but as part of 
+                #    # least-square-fit, i.e. not forced
+                #    matrix_set_zero = np.zeros(matrix[0,:].shape)
+                #    matrix_set_zero[iind] = 1
+                #    matrix = np.vstack([matrix_set_zero,matrix])
             else:
-                ind_zero = np.digitize(zero_times,self.t_bins)
+                ind_zero = np.digitize(zero_times,self.t_bins)-1
                 ind_zero[ind_zero<=0] = 0
-                ind_zero[ind_zero>=self.t_bins.size] = self.t_bins.size-1
+                ind_zero[ind_zero>=self.t_bins.size-1] = self.t_bins.size-2
+                
+            # Force ind_zero to be zeros:
+            # (I) Remove all columns/bins that represent open water
             for iind in ind_zero:
-                matrix_set_zero = np.zeros(matrix[0,:].shape)
-                matrix_set_zero[iind] = 1
-                matrix = np.vstack([matrix_set_zero,matrix])
+                matrix[:,iind] = 0
                     
+            
+            print(matrix.shape)
+            
             # Remove empty rows and columns
-            ind_r = np.where(np.any(matrix!=0,axis=1))
-            ind_c = np.where(np.any(matrix!=0,axis=0))
+            ind_r = np.where(np.any(matrix!=0,axis=1)) # Start and end time in different bins
+            ind_c = np.where(np.any(matrix!=0,axis=0)) # Bin covered by overlapping measurements
 
             matrix = matrix[ind_r[0],:]
             matrix = matrix[:,ind_c[0]]
+            
+            print(np.max(ind_zero),np.max(ind_c))
 
             # Initialize solution vector with differences in overlapping regions
             solution = np.concatenate([np.zeros((len(ind_zero))),self.diff])[ind_r]
@@ -1266,9 +1283,16 @@ class  ALSCorrection(object):
             # 4. Find best curve that fits best to all time averages
             self.c = np.linalg.lstsq(matrix, solution, rcond=None)[0]
             
+            # (II) Add again zero times to solution
+            if True: #zero_times is not None:
+                sort_array = np.vstack([np.hstack([ind_zero,ind_c[0]]),
+                                        np.hstack([np.zeros(np.array(ind_zero).shape),self.c])])
+                ind_c = sort_array[:,sort_array[0,:].argsort()][0,:].astype('int')
+                self.c = sort_array[:,sort_array[0,:].argsort()][1,:]
+            
             # (B) Linear Interpolation
             self.t_c = self.t_bins[ind_c]
-            self.func = interp1d(self.t_bins[ind_c]-self.t_bins[0], 
+            self.func = interp1d(0.5*(self.t_bins[1:]+self.t_bins[:-1])[ind_c]-self.t_bins[0], 
                                  self.c, kind='linear',bounds_error=False,
                                  fill_value=(self.c[0],self.c[-1]))
             
