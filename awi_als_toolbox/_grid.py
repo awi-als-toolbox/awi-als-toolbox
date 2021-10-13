@@ -1234,14 +1234,9 @@ class  ALSCorrection(object):
             # 2. Bin start and end time of overlapping segments to tie point bins
             bins_s = np.digitize(self.tmpstmp_s,self.t_bins)-1
             bins_e = np.digitize(self.tmpstmp_e,self.t_bins)-1
-            print(bins_s.min(),bins_s.max())
-            print(bins_e.min(),bins_e.max())
-            print(self.t_bins[-1]-self.tmpstmp_e[bins_e==smpl_points])
             
             # 3. Mark which tie points lie within the start and end time
             matrix = np.zeros((bins_e.size,self.t_bins.size-1))
-            
-            print(matrix.shape)
 
             matrix[np.arange(bins_e.size),bins_s] -= 1
             matrix[np.arange(bins_e.size),bins_e] += 1
@@ -1264,9 +1259,6 @@ class  ALSCorrection(object):
             # (I) Remove all columns/bins that represent open water
             for iind in ind_zero:
                 matrix[:,iind] = 0
-                    
-            
-            print(matrix.shape)
             
             # Remove empty rows and columns
             ind_r = np.where(np.any(matrix!=0,axis=1)) # Start and end time in different bins
@@ -1274,8 +1266,6 @@ class  ALSCorrection(object):
 
             matrix = matrix[ind_r[0],:]
             matrix = matrix[:,ind_c[0]]
-            
-            print(np.max(ind_zero),np.max(ind_c))
 
             # Initialize solution vector with differences in overlapping regions
             solution = np.concatenate([np.zeros((len(ind_zero))),self.diff])[ind_r]
@@ -1297,6 +1287,16 @@ class  ALSCorrection(object):
                                  fill_value=(self.c[0],self.c[-1]))
             
             self.data_avail = True
+            
+            # Store correction function for later use
+        
+    # Function to read correction term from csv file -> needs export file
+    
+    
+    # Function to open csv export file to write info into
+    
+    
+
 
             
 #     def compute_cor_func(self, smpl_points=500, zero_times=None):

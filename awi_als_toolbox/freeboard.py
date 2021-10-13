@@ -311,7 +311,6 @@ class DetectOpenWater(ALSPointCloudFilter):
     def _get_export(self):
         # Check if file exists
         export_file = Path(self.cfg["export_file"]).absolute()
-        print(export_file)
         if not export_file.is_file():
             # Otherwise create new file with header
             with export_file.open(mode='w') as f:
