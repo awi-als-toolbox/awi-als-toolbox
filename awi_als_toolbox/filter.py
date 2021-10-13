@@ -16,8 +16,11 @@ from datetime import datetime, timedelta
 import os
 from loguru import logger
 from scipy.signal import medfilt, convolve,find_peaks
+from scipy.interpolate import interp1d
 from pathlib import Path
 import matplotlib.pylab as plt
+import pandas as pd
+
 
 class ALSPointCloudFilter(object):
     """ Base class for point cloud filters """
@@ -178,4 +181,49 @@ class IceDriftCorrection(ALSPointCloudFilter):
         
         self.IceCoordinateSystem = als.IceCoordinateSystem = IceCoordinateSystem(refstat)
 
+
         
+        
+class OffsetCorrectionFilter(ALSPointCloudFilter):
+    """
+    Reads in offset terms (for elevation) computed while gridding the floe
+    grid and subtracts them from the variable field
+    """
+
+    def __init__(self, export_file='_correction.csv'):
+        """
+        Initialize the filter.
+        :param filter_threshold_m:
+        """
+        super(OffsetCorrectionFilter, self).__init__(export_file='_correction.csv')
+
+    def apply(self, als):
+        """
+        Apply the filter for all lines in the ALS data container
+        :param als:
+        :return:
+        """
+        
+        # Check for correction files stored
+        corr_files = [ifile for ifile in os.listdir('./') if ifile.endswith(self.cfg['export_file'])]
+        
+        # Apply correction to als object
+        for icor in corr_files:
+            fpath = Path(icor).absolute()
+            variable = icor.split(self.cfg['export_file'])[0]
+            logger.info("Apply offset correction for: %s with file:%s" %(variable,fpath))
+            
+            # Read offset correction file
+            df = pd.read_csv(fpath)
+            t = np.array(df['timestamp'])
+            c = np.array(df['%s_offset' %variable])
+            
+            # Set-up interpolation function
+            func = interp1d(t,c, kind='linear',bounds_error=False,
+                            fill_value=(c[0],c[-1]))
+            
+            # Apply ALS binary file
+            data = als.get(variable)
+            cor_data = data - func(als.get("timestamp"))
+            logger.info("    mean correction: %.05f" %np.nanmean(data-cor_data))
+            als.set(variable, cor_data)

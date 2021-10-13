@@ -712,6 +712,7 @@ class ALSGridCollection(object):
                 else:
                     zero_times = None
                 merged_grid.correction[ivar].compute_cor_func(zero_times=zero_times)
+                
             # Reset gridded fields for new computation with correction term
             merged_grid.reset_gridded_fields()
         logger.info("Merge grids")
@@ -1187,20 +1188,21 @@ class ALSMergedGrid(object):
     
 class  ALSCorrection(object):
 
-    def __init__(self,variable,smpl_freq=100):
+    def __init__(self,variable,smpl_freq=100,export_file='_correction.csv'):
         self.variable = variable
         self.data_avail = False
         self.diff = np.array([])
         self.tmpstmp_s = np.array([])
         self.tmpstmp_e = np.array([]) 
         self.smpl_freq = smpl_freq
+        self.export_file = self.variable + export_file
 
     def compute_cor_func(self, smpl_points=500, zero_times=None, zero_int=1):
         if self.diff.size>0:
             # (A) Fit all differences into on time dependent curve
             # This curve will be the time derivative of the correction term
-            # 1. Generate temporal tie points
-            # 1.1 Check for zero_times (time points where correction should be zero)
+            #  1. Generate temporal tie points
+            #    1.1 Check for zero_times (time points where correction should be zero)
             if zero_times is None:
                 self.t_bins = np.linspace(np.min(self.tmpstmp_s),
                                           np.max(self.tmpstmp_e)+1,
@@ -1231,17 +1233,17 @@ class  ALSCorrection(object):
                 self.t_bins = np.sort(np.array(self.t_bins))
                 
 
-            # 2. Bin start and end time of overlapping segments to tie point bins
+            #  2. Bin start and end time of overlapping segments to tie point bins
             bins_s = np.digitize(self.tmpstmp_s,self.t_bins)-1
             bins_e = np.digitize(self.tmpstmp_e,self.t_bins)-1
             
-            # 3. Mark which tie points lie within the start and end time
+            #  3. Mark which tie points lie within the start and end time
             matrix = np.zeros((bins_e.size,self.t_bins.size-1))
 
             matrix[np.arange(bins_e.size),bins_s] -= 1
             matrix[np.arange(bins_e.size),bins_e] += 1
                  
-            # Set correction term for zero for some times
+            #     Set correction term for zero for some times
             if zero_times is None:
                 ind_zero = [0]
                 #for iind in ind_zero:
@@ -1255,46 +1257,65 @@ class  ALSCorrection(object):
                 ind_zero[ind_zero<=0] = 0
                 ind_zero[ind_zero>=self.t_bins.size-1] = self.t_bins.size-2
                 
-            # Force ind_zero to be zeros:
-            # (I) Remove all columns/bins that represent open water
+            #     Force ind_zero to be zeros:
+            #      (I) Remove all columns/bins that represent open water
             for iind in ind_zero:
                 matrix[:,iind] = 0
             
-            # Remove empty rows and columns
+            #          Remove empty rows and columns
             ind_r = np.where(np.any(matrix!=0,axis=1)) # Start and end time in different bins
             ind_c = np.where(np.any(matrix!=0,axis=0)) # Bin covered by overlapping measurements
 
             matrix = matrix[ind_r[0],:]
             matrix = matrix[:,ind_c[0]]
 
-            # Initialize solution vector with differences in overlapping regions
+            #          Initialize solution vector with differences in overlapping regions
             solution = np.concatenate([np.zeros((len(ind_zero))),self.diff])[ind_r]
 
-            # 4. Find best curve that fits best to all time averages
+            #  4. Find best curve that fits best to all time averages
             self.c = np.linalg.lstsq(matrix, solution, rcond=None)[0]
             
-            # (II) Add again zero times to solution
+            #      (II) Add again zero times to solution
             if True: #zero_times is not None:
                 sort_array = np.vstack([np.hstack([ind_zero,ind_c[0]]),
                                         np.hstack([np.zeros(np.array(ind_zero).shape),self.c])])
-                ind_c = sort_array[:,sort_array[0,:].argsort()][0,:].astype('int')
+                self.ind_c = sort_array[:,sort_array[0,:].argsort()][0,:].astype('int')
                 self.c = sort_array[:,sort_array[0,:].argsort()][1,:]
             
             # (B) Linear Interpolation
-            self.t_c = self.t_bins[ind_c]
-            self.func = interp1d(0.5*(self.t_bins[1:]+self.t_bins[:-1])[ind_c]-self.t_bins[0], 
+            self.t_c = self.t_bins[self.ind_c]
+            self.func = interp1d(0.5*(self.t_bins[1:]+
+                                      self.t_bins[:-1])[self.ind_c]-self.t_bins[0], 
                                  self.c, kind='linear',bounds_error=False,
                                  fill_value=(self.c[0],self.c[-1]))
+            
+            self._export_correction()
             
             self.data_avail = True
             
             # Store correction function for later use
         
     # Function to read correction term from csv file -> needs export file
-    
+    def _export_correction(self):
+        for i in range(len(self.t_c)):
+            with self._get_export() as export_file:
+                export_file.write('%.15f,%.15f\n' %(0.5*(self.t_bins[1:]+
+                                      self.t_bins[:-1])[self.ind_c][i],self.c[i]))
+                export_file.close()
+     
     
     # Function to open csv export file to write info into
-    
+    def _get_export(self):
+        # Check if file exists
+        export_file = Path(self.export_file).absolute()
+        if not export_file.is_file():
+            # Otherwise create new file with header
+            with export_file.open(mode='w') as f:
+                f.write('timestamp,%s_offset\n' %self.variable)
+                f.close()
+        # Open file to read
+        return export_file.open(mode='a')
+ 
     
 
 

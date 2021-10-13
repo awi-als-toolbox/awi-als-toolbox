@@ -394,21 +394,25 @@ class AlsFreeboardConversion(object):
             # Parallel processing of all segments
             iters = np.arange(len(self.segments['i']))
             np.random.shuffle(iters)
-            results = [process_pool.apply_async(open_water_detection_wrapper, args=(self.segments['als_filepath'][i], 
-                                                                                    dem_cfg, file_version,
-                                                                                    self.segments['start_sec'][i], 
-                                                                                    self.segments['stop_sec'][i], 
-                                                                                    self.segments['i'][i], 
-                                                                                    self.segments['n_segments'][i],
-                                                                                    self.cfg)) 
+            results = [process_pool.apply_async(open_water_detection_wrapper, 
+                                                args=(self.segments['als_filepath'][i], 
+                                                      dem_cfg, file_version,
+                                                      self.segments['start_sec'][i],
+                                                      self.segments['stop_sec'][i],
+                                                      self.segments['i'][i],
+                                                      self.segments['n_segments'][i],
+                                                      self.cfg)) 
                        for i in iters]
             result =[iresult.get() for iresult in results]
         else:
             # Loop over all segments
             for i in range(len(self.segments['i'])):
-                open_water_detection_wrapper(self.segments['als_filepath'][i], dem_cfg, file_version, 
-                                             self.segments['start_sec'][i], self.segments['stop_sec'][i], 
-                                             self.segments['i'][i], self.segments['n_segments'][i], self.cfg)
+                open_water_detection_wrapper(self.segments['als_filepath'][i], 
+                                             dem_cfg, file_version, 
+                                             self.segments['start_sec'][i],
+                                             self.segments['stop_sec'][i], 
+                                             self.segments['i'][i],
+                                             self.segments['n_segments'][i], self.cfg)
                 
                 
     def read_csv(self):
