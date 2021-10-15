@@ -19,6 +19,7 @@ from loguru import logger
 from . import AirborneLaserScannerFile, AirborneLaserScannerFileV2, AlsDEM
 from .export import AlsDEMNetCDF
 import awi_als_toolbox.freeboard as freeboard
+from awi_als_toolbox.filter import OffsetCorrectionFilter
 
 
 
@@ -185,6 +186,10 @@ def read_grid_wrapper(als_filepath, dem_cfg, output_cfg, file_version, start_sec
         
     # Apply freeboard conversion
     if 'freeboard' in output_cfg.variable_attributes.keys():
+        # Apply offset correction
+        ocf = OffsetCorrectionFilter()
+        ocf.apply(als)
+        # Apply freeboard computation
         ALSfreeboard = freeboard.AlsFreeboardConversion(cfg=dem_cfg.freeboard)
         ALSfreeboard.freeboard_computation(als)
 

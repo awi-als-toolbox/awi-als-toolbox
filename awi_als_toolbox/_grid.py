@@ -9,6 +9,7 @@ import xarray as xr
 from netCDF4 import num2date, date2num
 
 import numpy as np
+import os
 
 import pyproj
 from pathlib import Path
@@ -711,7 +712,8 @@ class ALSGridCollection(object):
                     zero_times = np.array(df['timestamp'])
                 else:
                     zero_times = None
-                merged_grid.correction[ivar].compute_cor_func(zero_times=zero_times)
+                merged_grid.correction[ivar].compute_cor_func(zero_times=zero_times,
+                                                              export_dir=merged_grid.export_dir)
                 
             # Reset gridded fields for new computation with correction term
             merged_grid.reset_gridded_fields()
@@ -1186,18 +1188,20 @@ class ALSMergedGrid(object):
     
 
     
-class  ALSCorrection(object):
+class ALSCorrection(object):
 
-    def __init__(self,variable,smpl_freq=100,export_file='_correction.csv'):
+    def __init__(self,variable,smpl_freq=100,export_file='_correction.csv',export_dir='./'):
         self.variable = variable
         self.data_avail = False
         self.diff = np.array([])
         self.tmpstmp_s = np.array([])
         self.tmpstmp_e = np.array([]) 
         self.smpl_freq = smpl_freq
+        self.export_dir = export_dir
         self.export_file = self.variable + export_file
 
-    def compute_cor_func(self, smpl_points=500, zero_times=None, zero_int=1):
+    def compute_cor_func(self, smpl_points=500, zero_times=None, zero_int=1,export_dir='./'):
+        self.export_dir = export_dir
         if self.diff.size>0:
             # (A) Fit all differences into on time dependent curve
             # This curve will be the time derivative of the correction term
@@ -1307,12 +1311,17 @@ class  ALSCorrection(object):
     # Function to open csv export file to write info into
     def _get_export(self):
         # Check if file exists
-        export_file = Path(self.export_file).absolute()
+        export_file = Path(self.export_dir).absolute().joinpath(self.export_file)
         if not export_file.is_file():
             # Otherwise create new file with header
             with export_file.open(mode='w') as f:
                 f.write('timestamp,%s_offset\n' %self.variable)
                 f.close()
+        # Link export file in current work directory
+        local_file = Path(self.export_file).absolute()
+        if local_file.is_file():
+            os.remove(local_file)
+        os.symlink(export_file,local_file)
         # Open file to read
         return export_file.open(mode='a')
  

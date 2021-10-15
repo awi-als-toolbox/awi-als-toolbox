@@ -21,7 +21,7 @@ from collections import OrderedDict
 import multiprocessing
 import pandas as pd
 
-from awi_als_toolbox.filter import ALSPointCloudFilter
+from awi_als_toolbox.filter import ALSPointCloudFilter, OffsetCorrectionFilter
 import awi_als_toolbox.scripts as scripts
 from awi_als_toolbox import AlsDEMCfg
 
@@ -279,7 +279,7 @@ class DetectOpenWater(ALSPointCloudFilter):
                 ind_start = i + 1
             
             if savefig:
-                fig.savefig(Path('Open_water_detection_%s.jpg' %als.tcs_segment_datetime), dpi=300)
+                fig.savefig(Path(self.cfg["export_file"]).absolute().parent.joinpath('Open_water_detection_%s.jpg' %als.tcs_segment_datetime), dpi=300)
          
         
         # 7. Export open water points
@@ -413,6 +413,9 @@ class AlsFreeboardConversion(object):
                                              self.segments['stop_sec'][i], 
                                              self.segments['i'][i],
                                              self.segments['n_segments'][i], self.cfg)
+        if use_multiprocessing:
+            process_pool.close()
+            process_pool.join()
                 
                 
     def read_csv(self):
@@ -465,6 +468,10 @@ def open_water_detection_wrapper(als_filepath, dem_cfg, file_version, start_sec,
     
     logger.info("Processing %s: [%g:%g] (%g/%g)" % (str(als_filepath), start_sec, stop_sec, i+1, n_segments))
     als = alsfile.get_data(start_sec, stop_sec)
+    
+    # Apply offset correction to ALS data
+    ocf = OffsetCorrectionFilter()
+    ocf.apply(als)
     
     # Initiate Open water detection object
     owfilter = DetectOpenWater(**cfg['OpenWaterDetection'])
