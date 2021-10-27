@@ -191,7 +191,7 @@ def read_grid_wrapper(als_filepath, dem_cfg, output_cfg, file_version, start_sec
         ocf.apply(als)
         # Apply freeboard computation
         ALSfreeboard = freeboard.AlsFreeboardConversion(cfg=dem_cfg.freeboard)
-        ALSfreeboard.freeboard_computation(als)
+        ALSfreeboard.freeboard_computation(als,interp2d=True,dem_cfg=dem_cfg)
 
     # Validate segment
     # -> Do not try to grid a segment that has no valid elevations

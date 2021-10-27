@@ -13,13 +13,14 @@ from datetime import datetime, timedelta
 import os
 from loguru import logger
 from scipy.signal import medfilt, convolve,find_peaks
-from scipy.interpolate import interp1d, UnivariateSpline
+from scipy.interpolate import interp1d, UnivariateSpline, SmoothBivariateSpline
 from scipy.ndimage import uniform_filter1d
 from pathlib import Path
 import matplotlib.pylab as plt
 from collections import OrderedDict
 import multiprocessing
 import pandas as pd
+import pyproj
 
 from awi_als_toolbox.filter import ALSPointCloudFilter, OffsetCorrectionFilter
 import awi_als_toolbox.scripts as scripts
@@ -430,10 +431,13 @@ class AlsFreeboardConversion(object):
             
             # 2. Compute interpolation function
             # filter double values
-            tow, eow = np.unique(np.stack([df['timestamp'],df['elevation']]),axis=1)
+            self.tow, self.lonow, self.latow, self.eow = np.unique(np.stack([df['timestamp'],
+                                                         df['longitude'],
+                                                         df['latitude'],
+                                                         df['elevation']]),axis=1)
             # fit function
             #self.func = interp1d(tow,eow,kind='linear',fill_value='extrapolate',bounds_error=False)
-            self.func = UnivariateSpline(tow,eow,s=0.03,ext='const')
+            self.func = UnivariateSpline(self.tow,self.eow,s=0.03,ext='const')
             
         except AttributeError:
             logger.error('export_file is not specified')
@@ -444,18 +448,52 @@ class AlsFreeboardConversion(object):
         if self.func is None:
             self.read_csv()
         return self.func
+    
             
         
-    def freeboard_computation(self, als):
-        # 1. Compute freeboard from elevation
+    def freeboard_computation(self, als, interp2d=False,dem_cfg=None):
+        if interp2d: # Use 2d interpolation of open water points
+            try:
+                # 0. Read csv
+                self.read_csv()
+                # 1. Get projection to use to interpolate
+                self.p = pyproj.Proj(dem_cfg.projection)
+                self.xow, self.yow = self.p(self.lonow,self.latow)
 
-        freeboard = als.get('elevation').copy()
-        # Compute for each line one correction term
-        for iline in range(als.n_lines):
-            freeboard[iline,:] -= self.interp_func(np.nanmean(als.get('timestamp')[iline,:]))
+                # 2. Define 2d interpolation function
+                self.func = SmoothBivariateSpline(self.xow,self.yow,self.eow)
 
-        # 2. Store freeboard in ALSPointCloudData
-        als._shot_vars['freeboard'] = freeboard
+                # 3. Compute freeboard from elevation
+                freeboard = als.get('elevation').copy()
+                # Compute for each line one correction term
+                for iline in range(als.n_lines):
+                    if als.get('x') is None:
+                        x,y = self.p(als.get('longitude')[iline,:],
+                                     als.get('latitude')[iline,:])
+                    else:
+                        x = als.get('x')[iline,:]
+                        y = als.get('y')[iline,:]
+
+                    mask = np.all([np.isfinite(x),np.isfinite(y)],axis=0)
+
+                    freeboard[iline,mask] -= self.func(x[mask],y[mask], grid=False)
+                    
+                # 4. Store freeboard in ALSPointCloudData
+                als._shot_vars['freeboard'] = freeboard
+                    
+            except AttributeError:
+                logger.error('No cfg-file is provided to take projection from')
+                
+            
+        else: # use timestamp for interpolation
+            # 1. Compute freeboard from elevation
+            freeboard = als.get('elevation').copy()
+            # Compute for each line one correction term
+            for iline in range(als.n_lines):
+                freeboard[iline,:] -= self.interp_func(np.nanmean(als.get('timestamp')[iline,:]))
+
+            # 2. Store freeboard in ALSPointCloudData
+            als._shot_vars['freeboard'] = freeboard
    
         
         
