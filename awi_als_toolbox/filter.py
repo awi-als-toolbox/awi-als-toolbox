@@ -205,10 +205,10 @@ class OffsetCorrectionFilter(ALSPointCloudFilter):
         """
         
         # Check for correction files stored
-        corr_files = [ifile for ifile in os.listdir('./') if ifile.endswith(self.cfg['export_file'])]
+        self.corr_files = [ifile for ifile in os.listdir('./') if ifile.endswith(self.cfg['export_file'])]
         
         # Apply correction to als object
-        for icor in corr_files:
+        for icor in self.corr_files:
             fpath = Path(icor).absolute()
             variable = icor.split(self.cfg['export_file'])[0]
             logger.info("Apply offset correction for: %s with file:%s" %(variable,fpath))
@@ -219,11 +219,11 @@ class OffsetCorrectionFilter(ALSPointCloudFilter):
             c = np.array(df['%s_offset' %variable])
             
             # Set-up interpolation function
-            func = interp1d(t,c, kind='linear',bounds_error=False,
+            func = interp1d(t-t[0],c, kind='linear',bounds_error=False,
                             fill_value=(c[0],c[-1]))
             
             # Apply ALS binary file
             data = als.get(variable)
-            cor_data = data - func(als.get("timestamp"))
+            cor_data = data - func(als.get("timestamp")-t[0])
             logger.info("    mean correction: %.05f" %np.nanmean(data-cor_data))
             als.set(variable, cor_data)

@@ -363,6 +363,7 @@ class AirborneLaserScannerFileV2(AirborneLaserScannerFile):
                                           ('latitude', (np.float64, Double)),
                                           ('longitude', (np.float64, Double)),
                                           ('elevation', (np.float64, Double)),
+                                          ('elevation_reference', (np.float64, Double)),
                                           ('amplitude', (np.float32, Single)),
                                           ('reflectance', (np.float32, Single)),
                                           ('echo_width', (np.float32, Single)),

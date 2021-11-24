@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 import os
 from loguru import logger
 from scipy.signal import medfilt, convolve,find_peaks
-from scipy.interpolate import interp1d, UnivariateSpline, SmoothBivariateSpline
+from scipy.interpolate import interp1d, UnivariateSpline, SmoothBivariateSpline, RBFInterpolator
 from scipy.ndimage import uniform_filter1d
 from pathlib import Path
 import matplotlib.pylab as plt
@@ -256,7 +256,6 @@ class DetectOpenWater(ALSPointCloudFilter):
                 
             ind_start = i + 1
         
-        
         # 6. (optional) plot results of open water detection
         if do_plot:
             fig,ax = plt.subplots(2,2,sharex=True, figsize=(10,6))
@@ -280,7 +279,9 @@ class DetectOpenWater(ALSPointCloudFilter):
                 ind_start = i + 1
             
             if savefig:
-                fig.savefig(Path(self.cfg["export_file"]).absolute().parent.joinpath('Open_water_detection_%s.jpg' %als.tcs_segment_datetime), dpi=300)
+                fig.savefig(Path(self.cfg["export_file"]).absolute().parent.joinpath('Open_water_detection_%s.jpg' %als.tcs_segment_datetime), 
+                            dpi=300)
+                print(Path(self.cfg["export_file"]).absolute().parent.joinpath('Open_water_detection_%s.jpg' %als.tcs_segment_datetime))
          
         
         # 7. Export open water points
@@ -448,7 +449,6 @@ class AlsFreeboardConversion(object):
         if self.func is None:
             self.read_csv()
         return self.func
-    
             
         
     def freeboard_computation(self, als, interp2d=False,dem_cfg=None):
@@ -461,7 +461,10 @@ class AlsFreeboardConversion(object):
                 self.xow, self.yow = self.p(self.lonow,self.latow)
 
                 # 2. Define 2d interpolation function
-                self.func = SmoothBivariateSpline(self.xow,self.yow,self.eow)
+                #self.func = SmoothBivariateSpline(self.xow,self.yow,self.eow)
+                self.func = RBFInterpolator(np.rollaxis(np.stack([self.xow,self.yow]),1,0),
+                                            self.eow,smoothing=10,kernel='linear')
+                
 
                 # 3. Compute freeboard from elevation
                 freeboard = als.get('elevation').copy()
@@ -476,7 +479,8 @@ class AlsFreeboardConversion(object):
 
                     mask = np.all([np.isfinite(x),np.isfinite(y)],axis=0)
 
-                    freeboard[iline,mask] -= self.func(x[mask],y[mask], grid=False)
+                    freeboard[iline,mask] -= self.func(np.rollaxis(np.stack([x[mask],
+                                                                             y[mask]]),1,0))
                     
                 # 4. Store freeboard in ALSPointCloudData
                 als._shot_vars['freeboard'] = freeboard

@@ -712,7 +712,7 @@ class ALSGridCollection(object):
                     zero_times = np.array(df['timestamp'])
                 else:
                     zero_times = None
-                merged_grid.correction[ivar].compute_cor_func(zero_times=zero_times,
+                merged_grid.correction[ivar].compute_cor_func(zero_times='mean',#zero_times,
                                                               export_dir=merged_grid.export_dir)
                 
             # Reset gridded fields for new computation with correction term
@@ -979,6 +979,12 @@ class ALSMergedGrid(object):
         for grid_variable_name in self.grid_variable_names:
             if grid_variable_name in self.correcting_fields and 'timestamp' in self.grid_variable_names:
                 if not self.correction[grid_variable_name].data_avail:
+                    # Storing mean 
+                    self.correction[grid_variable_name].mean_elev = np.append(self.correction[grid_variable_name].mean_elev, 
+                                                                              np.array([np.nanmean(grid.nc[grid_variable_name].values)]))
+                    self.correction[grid_variable_name].mean_elev_t = np.append(self.correction[grid_variable_name].mean_elev_t, 
+                                                                              np.array([np.nanmean(grid.nc['timestamp'].values)]))
+                    # Check for overlapping parts
                     if np.any(np.isfinite(self.grid[grid_variable_name][merged_valid_indices])):
                         mask_overlap = np.where(np.isfinite(self.grid[grid_variable_name][merged_valid_indices]))
                         
@@ -1199,6 +1205,10 @@ class ALSCorrection(object):
         self.smpl_freq = smpl_freq
         self.export_dir = export_dir
         self.export_file = self.variable + export_file
+        
+        self.mean_elev   = np.array([])
+        self.mean_elev_t = np.array([])
+        
 
     def compute_cor_func(self, smpl_points=500, zero_times=None, zero_int=1,export_dir='./'):
         self.export_dir = export_dir
@@ -1207,7 +1217,7 @@ class ALSCorrection(object):
             # This curve will be the time derivative of the correction term
             #  1. Generate temporal tie points
             #    1.1 Check for zero_times (time points where correction should be zero)
-            if zero_times is None:
+            if zero_times is None or zero_times=='mean':
                 self.t_bins = np.linspace(np.min(self.tmpstmp_s),
                                           np.max(self.tmpstmp_e)+1,
                                           smpl_points+1)
@@ -1241,11 +1251,15 @@ class ALSCorrection(object):
             bins_s = np.digitize(self.tmpstmp_s,self.t_bins)-1
             bins_e = np.digitize(self.tmpstmp_e,self.t_bins)-1
             
+            bins_m = np.digitize(self.mean_elev_t,self.t_bins)-1
+            
             #  3. Mark which tie points lie within the start and end time
-            matrix = np.zeros((bins_e.size,self.t_bins.size-1))
+            matrix = np.zeros((bins_e.size+bins_m.size,self.t_bins.size-1))
 
             matrix[np.arange(bins_e.size),bins_s] -= 1
             matrix[np.arange(bins_e.size),bins_e] += 1
+            
+            matrix[bins_e.size+np.arange(bins_m.size),bins_m] += 1
                  
             #     Set correction term for zero for some times
             if zero_times is None:
@@ -1256,6 +1270,8 @@ class ALSCorrection(object):
                 #    matrix_set_zero = np.zeros(matrix[0,:].shape)
                 #    matrix_set_zero[iind] = 1
                 #    matrix = np.vstack([matrix_set_zero,matrix])
+            elif zero_times=='mean':
+                ind_zero = []
             else:
                 ind_zero = np.digitize(zero_times,self.t_bins)-1
                 ind_zero[ind_zero<=0] = 0
@@ -1274,7 +1290,7 @@ class ALSCorrection(object):
             matrix = matrix[:,ind_c[0]]
 
             #          Initialize solution vector with differences in overlapping regions
-            solution = np.concatenate([np.zeros((len(ind_zero))),self.diff])[ind_r]
+            solution = np.concatenate([np.zeros((len(ind_zero))),np.concatenate([self.diff,self.mean_elev-np.mean(self.mean_elev)])])[ind_r]
 
             #  4. Find best curve that fits best to all time averages
             self.c = np.linalg.lstsq(matrix, solution, rcond=None)[0]
