@@ -80,7 +80,10 @@ class AirborneLaserScannerFile(object):
 
         return list(zip(start_secs, end_secs))
 
-    def get_data(self, start_seconds=None, end_seconds=None, sanitize=True):
+    def get_data(self,
+                 start_seconds: int = None,
+                 end_seconds: int = None,
+                 sanitize: bool = True) -> "ALSPointCloudData":
         """
         Read a subset of the ALS data and return its content. The subset is selected with the (integer) seconds of
         the day. If `start_seconds` and `end_seconds` are omitted, the maximum range will be used
