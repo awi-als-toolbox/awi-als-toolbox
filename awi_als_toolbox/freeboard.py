@@ -520,4 +520,7 @@ def open_water_detection_wrapper(als_filepath, dem_cfg, file_version, start_sec,
     
     # detect open water
     owfilter.apply(als,do_plot=True, savefig=True)
+
+
+    
     

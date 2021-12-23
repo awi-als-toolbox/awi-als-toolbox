@@ -19,7 +19,7 @@ from osgeo import gdal, osr
 from loguru import logger
 
 from scipy.interpolate import griddata, interp1d
-from scipy.ndimage.filters import maximum_filter
+from scipy.ndimage.filters import maximum_filter, median_filter
 import scipy.spatial.qhull as qhull
 
 import pandas as pd
@@ -676,7 +676,7 @@ class ALSGridCollection(object):
             grid_data = ALSL4Grid(filepath)
             self.grids.append(grid_data)
 
-    def get_merged_grid(self,return_fnames=False,cfg=None):
+    def get_merged_grid(self,return_fnames=False,cfg=None,use_low_reflectance_tiepoints=False):
         x_min, x_max = self.xc_bounds
         y_min, y_max = self.yc_bounds
         
@@ -697,7 +697,7 @@ class ALSGridCollection(object):
                 if i in self.ignore_list:
                     continue
                 logger.info("... %g / %g done [ref_time:%s]" % (i+1, self.n_grids, grid.reftime))
-                merged_grid.add_grid(grid)
+                merged_grid.add_grid(grid,use_low_reflectance_tiepoints=use_low_reflectance_tiepoints)
             logger.info("... %g / %g done" % (self.n_grids, self.n_grids))
         
             logger.info("Apply elevation correction:")
@@ -712,7 +712,7 @@ class ALSGridCollection(object):
                     zero_times = np.array(df['timestamp'])
                 else:
                     zero_times = None
-                merged_grid.correction[ivar].compute_cor_func(zero_times='mean',#zero_times,
+                merged_grid.correction[ivar].compute_cor_func(zero_times=['mean','stored'][use_low_reflectance_tiepoints],#zero_times,
                                                               export_dir=merged_grid.export_dir)
                 
             # Reset gridded fields for new computation with correction term
@@ -943,7 +943,7 @@ class ALSMergedGrid(object):
         
         
 
-    def add_grid(self, grid):
+    def add_grid(self, grid, use_low_reflectance_tiepoints=False):
         # Save data directory as export directory if not other specified in cfg file
         if self.export_dir is None:
             self.export_dir = grid.filepath.parent
@@ -984,6 +984,12 @@ class ALSMergedGrid(object):
                                                                               np.array([np.nanmean(grid.nc[grid_variable_name].values)]))
                     self.correction[grid_variable_name].mean_elev_t = np.append(self.correction[grid_variable_name].mean_elev_t, 
                                                                               np.array([np.nanmean(grid.nc['timestamp'].values)]))
+                    if use_low_reflectance_tiepoints and grid_variable_name=='elevation':
+                        t_ref,e_ref = extract_low_reflectance_regions(grid)
+                        self.correction[grid_variable_name].t_reg_ref = np.append(self.correction[grid_variable_name].t_reg_ref, 
+                                                                                  np.array(t_ref))
+                        self.correction[grid_variable_name].e_reg_ref = np.append(self.correction[grid_variable_name].e_reg_ref, 
+                                                                                  np.array(e_ref))
                     # Check for overlapping parts
                     if np.any(np.isfinite(self.grid[grid_variable_name][merged_valid_indices])):
                         mask_overlap = np.where(np.isfinite(self.grid[grid_variable_name][merged_valid_indices]))
@@ -1206,8 +1212,11 @@ class ALSCorrection(object):
         self.export_dir = export_dir
         self.export_file = self.variable + export_file
         
-        self.mean_elev   = np.array([])
-        self.mean_elev_t = np.array([])
+        self.mean_elev   = np.array([]) # Mean variable (elevation) in 30s segment
+        self.mean_elev_t = np.array([]) # Mean time in 30s segment
+        
+        self.t_reg_ref   = np.array([]) # Times for which a reference solution is known
+        self.e_reg_ref   = np.array([]) # Known reference solution
         
 
     def compute_cor_func(self, smpl_points=500, zero_times=None, zero_int=1,export_dir='./'):
@@ -1222,6 +1231,16 @@ class ALSCorrection(object):
                                           np.max(self.tmpstmp_e)+1,
                                           smpl_points+1)
             else:
+                if np.array(zero_times).ndim == 2:
+                    zero_vals  = zero_times[:,1] 
+                    zero_times = zero_times[:,0]
+                elif zero_times == 'stored':
+                    logger.info('Offset correction computation uses zero times from stored reference values')
+                    zero_times = self.t_reg_ref
+                    zero_vals = self.e_reg_ref
+                else:
+                    zero_vals = np.zeros(zero_times.size)
+                
                 # Generate bins around zero_times
                 t0_s = zero_times-0.5*zero_int
                 t0_e = zero_times+0.5*zero_int
@@ -1251,15 +1270,23 @@ class ALSCorrection(object):
             bins_s = np.digitize(self.tmpstmp_s,self.t_bins)-1
             bins_e = np.digitize(self.tmpstmp_e,self.t_bins)-1
             
-            bins_m = np.digitize(self.mean_elev_t,self.t_bins)-1
+            if zero_times=='mean':
+                bins_m = np.digitize(self.mean_elev_t,self.t_bins)-1
+                # Check if there are segments with mean elevation outside the time period of overlapping data
+                bins_m[bins_m<0] = 0
+                bins_m[bins_m>=self.t_bins.size-1] = self.t_bins.size-2
             
             #  3. Mark which tie points lie within the start and end time
-            matrix = np.zeros((bins_e.size+bins_m.size,self.t_bins.size-1))
+            if zero_times=='mean':
+                self.matrix = np.zeros((bins_e.size+bins_m.size,self.t_bins.size-1))
+            else:
+                self.matrix = np.zeros((bins_e.size,self.t_bins.size-1))
 
-            matrix[np.arange(bins_e.size),bins_s] -= 1
-            matrix[np.arange(bins_e.size),bins_e] += 1
+            self.matrix[np.arange(bins_e.size),bins_s] -= 1
+            self.matrix[np.arange(bins_e.size),bins_e] += 1
             
-            matrix[bins_e.size+np.arange(bins_m.size),bins_m] += 1
+            if zero_times=='mean':
+                self.matrix[bins_e.size+np.arange(bins_m.size),bins_m] += 1
                  
             #     Set correction term for zero for some times
             if zero_times is None:
@@ -1269,7 +1296,7 @@ class ALSCorrection(object):
                 #    # least-square-fit, i.e. not forced
                 #    matrix_set_zero = np.zeros(matrix[0,:].shape)
                 #    matrix_set_zero[iind] = 1
-                #    matrix = np.vstack([matrix_set_zero,matrix])
+                #    self.matrix = np.vstack([matrix_set_zero,matrix])
             elif zero_times=='mean':
                 ind_zero = []
             else:
@@ -1277,28 +1304,42 @@ class ALSCorrection(object):
                 ind_zero[ind_zero<=0] = 0
                 ind_zero[ind_zero>=self.t_bins.size-1] = self.t_bins.size-2
                 
-            #     Force ind_zero to be zeros:
+            #     Force ind_zero to be zeros or zero_vals:
+            #      (0) Initialize solution vector
+            self.solution = self.diff
             #      (I) Remove all columns/bins that represent open water
-            for iind in ind_zero:
-                matrix[:,iind] = 0
+            for iind in np.unique(ind_zero):
+                # Correction value for zero time
+                cor_val = np.mean(zero_vals[ind_zero==iind])
+                # Check all overlap in zero time and adjust known offset to solution
+                self.solution[self.matrix[:,iind]==1] -=cor_val
+                self.solution[self.matrix[:,iind]==-1] +=cor_val
+                self.matrix[:,iind] = 0 
             
             #          Remove empty rows and columns
-            ind_r = np.where(np.any(matrix!=0,axis=1)) # Start and end time in different bins
-            ind_c = np.where(np.any(matrix!=0,axis=0)) # Bin covered by overlapping measurements
+            ind_r = np.where(np.any(self.matrix!=0,axis=1)) # Start and end time in different bins
+            ind_c = np.where(np.any(self.matrix!=0,axis=0)) # Bin covered by overlapping measurements
 
-            matrix = matrix[ind_r[0],:]
-            matrix = matrix[:,ind_c[0]]
+            self.matrix = self.matrix[ind_r[0],:]
+            self.matrix = self.matrix[:,ind_c[0]]
+                        
 
             #          Initialize solution vector with differences in overlapping regions
-            solution = np.concatenate([np.zeros((len(ind_zero))),np.concatenate([self.diff,self.mean_elev-np.mean(self.mean_elev)])])[ind_r]
+            if zero_times=='mean':
+                #solution = np.concatenate([np.zeros((len(ind_zero))),np.concatenate([self.diff,self.mean_elev-np.mean(self.mean_elev)])])[ind_r]
+                self.solution = np.concatenate([np.zeros((len(ind_zero))),np.concatenate([self.solution,self.mean_elev-np.mean(self.mean_elev)])])[ind_r]
+            else:
+                #self.solution = np.concatenate([np.zeros((len(ind_zero))),self.diff])[ind_r]
+                #self.solution = np.concatenate([np.zeros((1)),self.solution])[ind_r]#len(ind_zero))),self.solution])[ind_r]
+                self.solution = self.solution[ind_r]
 
             #  4. Find best curve that fits best to all time averages
-            self.c = np.linalg.lstsq(matrix, solution, rcond=None)[0]
+            self.c = np.linalg.lstsq(self.matrix, self.solution, rcond=None)[0]
             
             #      (II) Add again zero times to solution
             if True: #zero_times is not None:
                 sort_array = np.vstack([np.hstack([ind_zero,ind_c[0]]),
-                                        np.hstack([np.zeros(np.array(ind_zero).shape),self.c])])
+                                        np.hstack([zero_vals,self.c])])#np.zeros(np.array(ind_zero).shape),self.c])])
                 self.ind_c = sort_array[:,sort_array[0,:].argsort()][0,:].astype('int')
                 self.c = sort_array[:,sort_array[0,:].argsort()][1,:]
             
@@ -1312,6 +1353,7 @@ class ALSCorrection(object):
             self._export_correction()
             
             self.data_avail = True
+            self.zero_times = zero_times
             
             # Store correction function for later use
         
@@ -1396,3 +1438,36 @@ class ALSCorrection(object):
 #                                  fill_value=(self.c[0],self.c[-1]))
             
 #             self.data_avail = True
+
+
+def extract_low_reflectance_regions(grid, thres=2,filt_size=5,chunk_size=1):
+    # Filter reflectance
+    filt_ref = median_filter(grid.nc['reflectance'],size=filt_size)
+    filt_ref[np.isnan(grid.nc['reflectance'])] = np.nan
+    
+    # Filter regions of low reflectance
+    mask = np.all([np.abs(filt_ref-np.nanmean(grid.nc['reflectance']))>thres,
+                   grid.nc['elevation']<np.nanmedian(grid.nc['elevation'])],axis=0)
+    
+    # Extract time and elevation references for these regions
+    t_reg = grid.nc['timestamp'].data[mask]
+    eref_reg = grid.nc['elevation'].data[mask]-grid.nc['elevation_reference'].data[mask]
+    
+    t = []
+    eref = []
+    if t_reg.size>10:
+        # Sort arrays by time
+        inds = np.argsort(t_reg)
+        t_reg = t_reg[inds]
+        eref_reg = eref_reg[inds]
+
+        # Chunk into 1s slices
+        ic = 0
+        used_mask = np.zeros(t_reg.shape).astype('bool')
+        while np.sum(used_mask)<used_mask.size or ic>30:
+            t.append(np.nanmean(t_reg[~used_mask][(t_reg[~used_mask]-t_reg[~used_mask][0])<chunk_size]))
+            eref.append(np.nanmean(eref_reg[~used_mask][(t_reg[~used_mask]-t_reg[~used_mask][0])<chunk_size]))
+            used_mask = (t_reg-t_reg[~used_mask][0])<chunk_size
+            ic += 1
+            
+    return t, eref
