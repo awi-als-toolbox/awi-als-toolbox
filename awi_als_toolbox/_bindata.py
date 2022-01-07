@@ -545,6 +545,7 @@ class ALSPointCloudData(object):
         self.y = np.empty(self.get("longitude").shape)*np.NaN
         self.IceDriftCorrected   = False
         self.IceCoordinateSystem = None
+        self.projection = None
 
     def set_debug_data(self, **kwargs):
         self.debug_data.update(kwargs)

@@ -117,12 +117,12 @@ class IceDriftCorrection(ALSPointCloudFilter):
     Corrects for ice drift during data aquisition, using floenavi or Polarstern position
     """
 
-    def __init__(self,use_polarstern=False):
+    def __init__(self,use_polarstern=False,reftimes=None):
         """
         Initialize the filter.
         :param filter_threshold_m:
         """
-        super(IceDriftCorrection, self).__init__(use_polarstern=use_polarstern)
+        super(IceDriftCorrection, self).__init__(use_polarstern=use_polarstern,reftimes=reftimes)
 
     def apply(self, als):
         """
@@ -146,7 +146,8 @@ class IceDriftCorrection(ALSPointCloudFilter):
         als_geo_pos = GeoPositionData(time_als,als.get("longitude")[nonan],als.get("latitude")[nonan])
 
         # 5. Compute projection
-        icepos = self.IceCoordinateSystem.get_xy_coordinates(als_geo_pos)
+        icepos,self.icecs = self.IceCoordinateSystem.get_xy_coordinates(als_geo_pos,transform_output=True,
+                                                             global_proj=True)
 
         # 6. Store projected coordinates
         als.x[nonan] = icepos.xc
@@ -155,18 +156,38 @@ class IceDriftCorrection(ALSPointCloudFilter):
         # 7. Set IceDriftCorrected
         als.IceDriftCorrected = True
         als.IceCoordinateSystem = self.IceCoordinateSystem
+        
+        # 8. Store projection
+        attrs = dict()
+
+        for ikey in [ik for ik in self.icecs.prj.crs.to_cf().keys() if ik!='crs_wkt']:
+            attrs[ikey] = self.icecs.prj.crs.to_cf()[ikey]
+        attrs['proj4_string'] = self.icecs.prj.srs
+
+        als.projection = dict(name=attrs['grid_mapping_name'], attrs=attrs)
+        
+
 
 
     def _get_IceDriftStation(self,als,use_polarstern=False):
+        # Check if reftimes are defined
+        if self.cfg["reftimes"] is None:
+            self.cfg["reftimes"]=[als.tcs_segment_datetime,als.tce_segment_datetime]
+            
+        
         # Check for master solutions of Leg 1-3 in floenavi package
         path_data = os.path.join('/'.join(floenavi.__file__.split('/')[:-2]),'data/master-solution')
         ms_sol = np.array([ifile for ifile in os.listdir(path_data) if ifile.endswith('.csv')])
         ms_sol_dates = np.array([[datetime.strptime(ifile.split('-')[2],'%Y%m%d'),
                                   datetime.strptime(ifile.split('-')[3],'%Y%m%d')] for ifile in ms_sol])
-        ind_begin = np.where(np.logical_and(als.tcs_segment_datetime>=ms_sol_dates[:,0],
-                                            als.tcs_segment_datetime<=ms_sol_dates[:,1]))[0]
-        ind_end   = np.where(np.logical_and(als.tce_segment_datetime>=ms_sol_dates[:,0],
-                                            als.tce_segment_datetime<=ms_sol_dates[:,1]))[0]
+        #ind_begin = np.where(np.logical_and(als.tcs_segment_datetime>=ms_sol_dates[:,0],
+        #                                    als.tcs_segment_datetime<=ms_sol_dates[:,1]))[0]
+        #ind_end   = np.where(np.logical_and(als.tce_segment_datetime>=ms_sol_dates[:,0],
+        #                                    als.tce_segment_datetime<=ms_sol_dates[:,1]))[0]
+        ind_begin = np.where(np.logical_and(self.cfg["reftimes"][0]>=ms_sol_dates[:,0],
+                                            self.cfg["reftimes"][0]<=ms_sol_dates[:,1]))[0]
+        ind_end   = np.where(np.logical_and(self.cfg["reftimes"][1]>=ms_sol_dates[:,0],
+                                            self.cfg["reftimes"][1]<=ms_sol_dates[:,1]))[0]
         self.read_floenavi = False
         if not use_polarstern:
             if ind_begin.size>0 and ind_end.size>0:
@@ -177,7 +198,8 @@ class IceDriftCorrection(ALSPointCloudFilter):
             refstat_csv_file = os.path.join(path_data,ms_sol[ind_begin][0])
             refstat = GeoReferenceStation.from_csv(refstat_csv_file)
         else:
-            refstat = PolarsternAWIDashboardPos(als.tcs_segment_datetime,als.tce_segment_datetime).reference_station
+            refstat = PolarsternAWIDashboardPos(self.cfg["reftimes"][0],
+                                                self.cfg["reftimes"][1]).reference_station
         
         self.IceCoordinateSystem = als.IceCoordinateSystem = IceCoordinateSystem(refstat)
 

@@ -33,7 +33,7 @@ class DetectOpenWater(ALSPointCloudFilter):
     """
 
     def __init__(self,fov_resolution=0.05550000071525574,kernel_size=5,
-                 rflc_thres=3.0,elev_tol=0.04,elev_segment=0.2,rflc_minmax=False,
+                 rflc_thres=2.5,elev_tol=0.1,elev_segment=0.2,rflc_minmax=False,
                  rflc_tol=1.0, cluster_size=25, export_file='open_water_points.csv'):
         """
         Initialize the filter.
@@ -197,7 +197,7 @@ class DetectOpenWater(ALSPointCloudFilter):
         rflc_nadir = als.get('reflectance')[nadir_inds]
         # Mask for invalid pixels
         mask = np.where(np.logical_and(np.isfinite(elev_nadir),np.isfinite(rflc_nadir)))
-
+        #print('Number nadir pixel', mask[0].size)
         
         # 2. Smoothen elevation and reflectance data for gridscale variations
         
@@ -217,6 +217,7 @@ class DetectOpenWater(ALSPointCloudFilter):
         elev_tol = self.cfg["elev_tol"]
         elev_grad = self.cfg["elev_segment"]/als.n_lines
         owp = np.arange(elev_nadir.size)[np.abs(elev_nadir-globmin)<=np.abs(np.arange(elev_nadir.size)-iglobmin)*elev_grad+2*elev_tol]
+        #print('elevation open water',owp.size)
         
         
         # 5. Check reflectance of potential points
@@ -244,17 +245,24 @@ class DetectOpenWater(ALSPointCloudFilter):
         
         rflc_mean = np.nanmean(als.get('reflectance'))
         
+        # Check if projection is available
+        self.proj_avail = hasattr(als,'x') and hasattr(als,'y')
+        
         for i in cluster_breaks:
             if ind_start!=i:
                 inds_cluster = (nadir_inds[0][owp][ind_start:i],nadir_inds[1][owp][ind_start:i])
                 cluster_info.append((np.nanmean(als.get('timestamp')[inds_cluster]),
                                      np.nanmean(als.get('longitude')[inds_cluster]),
                                      np.nanmean(als.get('latitude')[inds_cluster]),
+                                     np.nanmean([np.zeros(als.get('longitude').shape)*np.nan, als.x][self.proj_avail][inds_cluster]),
+                                     np.nanmean([np.zeros(als.get('longitude').shape)*np.nan, als.y][self.proj_avail][inds_cluster]),
                                      np.nanmean(als.get('elevation')[inds_cluster]),
                                      np.nanmean(als.get('reflectance')[inds_cluster]),
                                      np.nanmean(als.get('reflectance')[inds_cluster])-rflc_mean))
                 
             ind_start = i + 1
+            
+        logger.info('Number of open water points: %i and clusters: %i' %(owp.size,len(cluster_info)))
         
         # 6. (optional) plot results of open water detection
         if do_plot:
@@ -281,7 +289,7 @@ class DetectOpenWater(ALSPointCloudFilter):
             if savefig:
                 fig.savefig(Path(self.cfg["export_file"]).absolute().parent.joinpath('Open_water_detection_%s.jpg' %als.tcs_segment_datetime), 
                             dpi=300)
-                print(Path(self.cfg["export_file"]).absolute().parent.joinpath('Open_water_detection_%s.jpg' %als.tcs_segment_datetime))
+                logger.info('Stored open water detection image to %s' %Path(self.cfg["export_file"]).absolute().parent.joinpath('Open_water_detection_%s.jpg' %als.tcs_segment_datetime))
          
         
         # 7. Export open water points
@@ -294,11 +302,13 @@ class DetectOpenWater(ALSPointCloudFilter):
         for ix,iy in zip(inds_peak[0],inds_peak[1]):
             with self._get_export() as export_file:
                 export_file.write('%.15f,%.15f,%.15f,%f,%f,%f\n' %(als.get('timestamp')[ix,iy],
-                                                             als.get('longitude')[ix,iy],
-                                                             als.get('latitude')[ix,iy],
-                                                             als.get('elevation')[ix,iy],
-                                                             als.get('reflectance')[ix,iy],
-                                                             als.get('reflectance')[ix,iy]-rflc_mean))
+                                                                   als.get('longitude')[ix,iy],
+                                                                   als.get('latitude')[ix,iy],
+                                                                   [np.zeros(als.get('longitude').shape)*np.nan, als.x][self.proj_avail][ix,iy],
+                                                                   [np.zeros(als.get('longitude').shape)*np.nan, als.y][self.proj_avail][ix,iy],
+                                                                   als.get('elevation')[ix,iy],
+                                                                   als.get('reflectance')[ix,iy],
+                                                                   als.get('reflectance')[ix,iy]-rflc_mean))
                 export_file.close()
                 
                 
@@ -306,7 +316,7 @@ class DetectOpenWater(ALSPointCloudFilter):
         rflc_mean = np.nanmean(als.get('reflectance'))
         for icluster in cluster_info:
             with self._get_export() as export_file:
-                export_file.write('%.15f,%.15f,%.15f,%f,%f,%f\n' %icluster)
+                export_file.write('%.15f,%.15f,%.15f,%.15f,%.15f,%f,%f,%f\n' %icluster)
                 export_file.close()
         
         
@@ -316,7 +326,7 @@ class DetectOpenWater(ALSPointCloudFilter):
         if not export_file.is_file():
             # Otherwise create new file with header
             with export_file.open(mode='w') as f:
-                f.write('timestamp,longitude,latitude,elevation,reflectance,reflectance (diff to mean)\n')
+                f.write('timestamp,longitude,latitude,x,y,elevation,reflectance,reflectance (diff to mean)\n')
                 f.close()
         # Open file to read
         return export_file.open(mode='a')
@@ -335,7 +345,7 @@ class AlsFreeboardConversion(object):
     
     def __init__(self, cfg=None, export_file=None):
         """
-        Create a Freeboard Conversion object iwth cfg files
+        Create a Freeboard Conversion object with cfg files
         :param cfg: dictionary containg the key arguments for OpenWaterDetection and SeaDurfaceInterpolation
         """
         self.cfg = cfg
@@ -345,6 +355,10 @@ class AlsFreeboardConversion(object):
         for ikey in ['OpenWaterDetection','SeaSurfaceInterpolation']:
             if ikey not in self.cfg.keys():
                 self.cfg[ikey] = {}
+        
+        for ikey,val in zip(['interp2d', 'smoothing', 'kernel'], [False, 10, 'linear']):
+            if ikey not in self.cfg['SeaSurfaceInterpolation'].keys():
+                self.cfg['SeaSurfaceInterpolation'][ikey] = ival
                 
         # Determine common csv-file to output open water points
         if export_file is not None:
@@ -373,7 +387,7 @@ class AlsFreeboardConversion(object):
             
         # Overwrite or initialise common csv-file to output open water points
         with self.export_file.open(mode='w') as f:
-            f.write('timestamp,longitude,latitude,elevation,reflectance,reflectance (diff to mean)\n')
+            f.write('timestamp,longitude,latitude,x,y,elevation,reflectance,reflectance (diff to mean)\n')
             f.close()
             
         # Get all segments from ALS files
@@ -432,13 +446,18 @@ class AlsFreeboardConversion(object):
             
             # 2. Compute interpolation function
             # filter double values
-            self.tow, self.lonow, self.latow, self.eow = np.unique(np.stack([df['timestamp'],
+            self.tow, self.lonow, self.latow, self.xow, self.yow, self.eow = np.unique(np.stack([df['timestamp'],
                                                          df['longitude'],
                                                          df['latitude'],
+                                                         df['x'],
+                                                         df['y'],
                                                          df['elevation']]),axis=1)
             # fit function
             #self.func = interp1d(tow,eow,kind='linear',fill_value='extrapolate',bounds_error=False)
-            self.func = UnivariateSpline(self.tow,self.eow,s=0.03,ext='const')
+            
+            self.func = UnivariateSpline(np.unique(np.stack([self.tow,self.eow]),axis=1)[0,:],
+                                         np.unique(np.stack([self.tow,self.eow]),axis=1)[1,:],
+                                         s=0.03,ext='const')
             
         except AttributeError:
             logger.error('export_file is not specified')
@@ -452,30 +471,36 @@ class AlsFreeboardConversion(object):
             
         
     def freeboard_computation(self, als, interp2d=False,dem_cfg=None):
-        if interp2d: # Use 2d interpolation of open water points
+        if self.cfg['SeaSurfaceInterpolation']['interp2d'] != interp2d:
+            logger.info('Warning: value of config interp2d in the sea surface interpolation is overwritten by input!')
+            self.cfg['SeaSurfaceInterpolation']['interp2d'] = interp2d
+        if self.cfg['SeaSurfaceInterpolation']['interp2d']: # Use 2d interpolation of open water points
             try:
                 # 0. Read csv
                 self.read_csv()
-                # 1. Get projection to use to interpolate
-                self.p = pyproj.Proj(dem_cfg.projection)
-                self.xow, self.yow = self.p(self.lonow,self.latow)
+                if np.any([np.isnan(self.xow),np.isnan(self.yow)]):
+                    # 1. Get projection to use to interpolate
+                    self.p = pyproj.Proj(dem_cfg.projection)
+                    self.xow, self.yow = self.p(self.lonow,self.latow)
+                    logger.info('WARNING: config projection is used to compute freeboard positions, which potentially interferes with Ice Drift Correction')
 
                 # 2. Define 2d interpolation function
                 #self.func = SmoothBivariateSpline(self.xow,self.yow,self.eow)
                 self.func = RBFInterpolator(np.rollaxis(np.stack([self.xow,self.yow]),1,0),
-                                            self.eow,smoothing=10,kernel='linear')
+                                            self.eow,smoothing=['SeaSurfaceInterpolation']['smoothing'],
+                                            kernel=['SeaSurfaceInterpolation']['kernel'])
                 
 
                 # 3. Compute freeboard from elevation
                 freeboard = als.get('elevation').copy()
                 # Compute for each line one correction term
                 for iline in range(als.n_lines):
-                    if als.get('x') is None:
+                    if als.x is None or als.y is None:
                         x,y = self.p(als.get('longitude')[iline,:],
                                      als.get('latitude')[iline,:])
                     else:
-                        x = als.get('x')[iline,:]
-                        y = als.get('y')[iline,:]
+                        x = als.x[iline,:]
+                        y = als.y[iline,:]
 
                     mask = np.all([np.isfinite(x),np.isfinite(y)],axis=0)
 
@@ -514,6 +539,10 @@ def open_water_detection_wrapper(als_filepath, dem_cfg, file_version, start_sec,
     # Apply offset correction to ALS data
     ocf = OffsetCorrectionFilter()
     ocf.apply(als)
+    
+    # Apply any filter defined
+    for input_filter in dem_cfg.get_input_filter():
+        input_filter.apply(als)
     
     # Initiate Open water detection object
     owfilter = DetectOpenWater(**cfg['OpenWaterDetection'])

@@ -77,6 +77,7 @@ class AlsDEM(object):
             self.x = self.als.x
             self.y = self.als.y
             self.IceDriftCorrection = True
+            self.cfg.grid_mapping = self.als.projection
             logger.info("IceDriftCorrection detected")
         except AttributeError:
             self._proj()
@@ -712,7 +713,7 @@ class ALSGridCollection(object):
                     zero_times = np.array(df['timestamp'])
                 else:
                     zero_times = None
-                merged_grid.correction[ivar].compute_cor_func(zero_times=['mean','stored'][use_low_reflectance_tiepoints],#zero_times,
+                merged_grid.correction[ivar].compute_cor_func(zero_times=[None,'stored'][use_low_reflectance_tiepoints],#zero_times,
                                                               export_dir=merged_grid.export_dir)
                 
             # Reset gridded fields for new computation with correction term
@@ -799,7 +800,7 @@ class ALSL4Grid(object):
 
     @property
     def proj4str(self):
-        proj_info = self.nc.Polar_Stereographic_Grid
+        proj_info = self.nc.projection #Polar_Stereographic_Grid
         return proj_info.proj4_string
 
     @property
@@ -1073,7 +1074,7 @@ class ALSMergedGrid(object):
         :param output_path:
         :return:
         """
-
+        
         # Parameter
         grid_dims = ("yc", "xc")
         coord_dims = ("yc", "xc")
@@ -1095,7 +1096,8 @@ class ALSMergedGrid(object):
                 
                 XC,YC = np.meshgrid(self.xc,self.yc)
                 
-                icepos = IceCoordinateSystem(refstat).get_latlon_coordinates(XC, YC, self.reftime)
+                print(self.proj4str)
+                icepos, heading = IceCoordinateSystem(refstat).get_latlon_coordinates(XC, YC, self.reftime,proj4str=self.proj4str, return_heading=True)
                 
                 self.lons = icepos.longitude; self.lats = icepos.latitude
             except ImportError:
@@ -1116,11 +1118,15 @@ class ALSMergedGrid(object):
         # Add global attributes
         for key in self.cfg.global_attributes.keys():
             ds.attrs[key] = self.cfg.global_attributes.get(key)
+        ds.attrs['projection'] = self.proj4str
+        ds.attrs['projection_heading'] = heading
+        print(ds.attrs)
 
         # Turn on compression for all variables
         comp = dict(zlib=True)
         encoding = {var: comp for var in ds.data_vars}
         ds.to_netcdf(self.path('nc'), engine="netcdf4", encoding=encoding)
+        
 
     def export_geotiff(self):
         """
@@ -1226,6 +1232,8 @@ class ALSCorrection(object):
             # This curve will be the time derivative of the correction term
             #  1. Generate temporal tie points
             #    1.1 Check for zero_times (time points where correction should be zero)
+            
+            print (zero_times)
             if zero_times is None or zero_times=='mean':
                 self.t_bins = np.linspace(np.min(self.tmpstmp_s),
                                           np.max(self.tmpstmp_e)+1,
@@ -1265,6 +1273,7 @@ class ALSCorrection(object):
                         self.t_bins.append(ibin)
                 self.t_bins = np.sort(np.array(self.t_bins))
                 
+            print (zero_times)
 
             #  2. Bin start and end time of overlapping segments to tie point bins
             bins_s = np.digitize(self.tmpstmp_s,self.t_bins)-1
@@ -1304,16 +1313,21 @@ class ALSCorrection(object):
                 ind_zero[ind_zero<=0] = 0
                 ind_zero[ind_zero>=self.t_bins.size-1] = self.t_bins.size-2
                 
+            print (zero_times)
+                
             #     Force ind_zero to be zeros or zero_vals:
             #      (0) Initialize solution vector
             self.solution = self.diff
             #      (I) Remove all columns/bins that represent open water
             for iind in np.unique(ind_zero):
-                # Correction value for zero time
-                cor_val = np.mean(zero_vals[ind_zero==iind])
-                # Check all overlap in zero time and adjust known offset to solution
-                self.solution[self.matrix[:,iind]==1] -=cor_val
-                self.solution[self.matrix[:,iind]==-1] +=cor_val
+                print(zero_times is not None and zero_times!='mean')
+                if zero_times is not None and zero_times!='mean':
+                    print('in loop')
+                    # Correction value for zero time
+                    cor_val = np.mean(zero_vals[ind_zero==iind])
+                    # Check all overlap in zero time and adjust known offset to solution
+                    self.solution[self.matrix[:,iind]==1] -=cor_val
+                    self.solution[self.matrix[:,iind]==-1] +=cor_val
                 self.matrix[:,iind] = 0 
             
             #          Remove empty rows and columns
@@ -1324,6 +1338,8 @@ class ALSCorrection(object):
             self.matrix = self.matrix[:,ind_c[0]]
                         
 
+            print (zero_times)
+                
             #          Initialize solution vector with differences in overlapping regions
             if zero_times=='mean':
                 #solution = np.concatenate([np.zeros((len(ind_zero))),np.concatenate([self.diff,self.mean_elev-np.mean(self.mean_elev)])])[ind_r]
@@ -1337,11 +1353,13 @@ class ALSCorrection(object):
             self.c = np.linalg.lstsq(self.matrix, self.solution, rcond=None)[0]
             
             #      (II) Add again zero times to solution
-            if True: #zero_times is not None:
+            if zero_times is not None:
                 sort_array = np.vstack([np.hstack([ind_zero,ind_c[0]]),
                                         np.hstack([zero_vals,self.c])])#np.zeros(np.array(ind_zero).shape),self.c])])
                 self.ind_c = sort_array[:,sort_array[0,:].argsort()][0,:].astype('int')
                 self.c = sort_array[:,sort_array[0,:].argsort()][1,:]
+            else:
+                self.ind_c = ind_c
             
             # (B) Linear Interpolation
             self.t_c = self.t_bins[self.ind_c]

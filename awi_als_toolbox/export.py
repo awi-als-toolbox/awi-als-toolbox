@@ -107,7 +107,8 @@ class AlsDEMNetCDF(object):
         # Add grid mapping
         grid_mapping_name, grid_mapping_attrs = self.dem.grid_mapping_items
         if grid_mapping_name is not None:
-            data_vars[grid_mapping_name] = xr.Variable("grid_mapping", [0], attrs=grid_mapping_attrs)
+            #data_vars[grid_mapping_name] = xr.Variable("grid_mapping", [0], attrs=grid_mapping_attrs)
+            data_vars['projection'] = xr.Variable("grid_mapping", [0], attrs=grid_mapping_attrs)
 
         # Get the dimension variables
         coords = {"time": xr.Variable("time", [self.dem.ref_time], attrs=self.cfg.get_var_attrs("time")),
