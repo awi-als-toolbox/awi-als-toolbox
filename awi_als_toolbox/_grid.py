@@ -15,6 +15,7 @@ import pyproj
 from pathlib import Path
 from collections import OrderedDict
 from osgeo import gdal, osr
+from affine import Affine
 
 from loguru import logger
 
@@ -1097,7 +1098,7 @@ class ALSMergedGrid(object):
                 XC,YC = np.meshgrid(self.xc,self.yc)
                 
                 print(self.proj4str)
-                icepos, heading = IceCoordinateSystem(refstat).get_latlon_coordinates(XC, YC, self.reftime,proj4str=self.proj4str, return_heading=True)
+                icepos, self.heading = IceCoordinateSystem(refstat).get_latlon_coordinates(XC, YC, self.reftime,proj4str=self.proj4str, return_heading=True)
                 
                 self.lons = icepos.longitude; self.lats = icepos.latitude
             except ImportError:
@@ -1119,7 +1120,7 @@ class ALSMergedGrid(object):
         for key in self.cfg.global_attributes.keys():
             ds.attrs[key] = self.cfg.global_attributes.get(key)
         ds.attrs['projection'] = self.proj4str
-        ds.attrs['projection_heading'] = heading
+        ds.attrs['projection_heading'] = self.heading
         print(ds.attrs)
 
         # Turn on compression for all variables
@@ -1146,6 +1147,11 @@ class ALSMergedGrid(object):
             output_path = str(self.path('tiff',field_name=grid_variable_name).absolute())
             dataset = driver.Create(output_path, self.dims[1], self.dims[0], 1, gdal.GDT_Float32)
             dataset.SetGeoTransform((self.x_min, self.res, 0, self.y_max, 0, -self.res))
+            # Check if coordinate system is rotated
+            if hasatrr(self,'heading'):
+                affine_m = Affine.from_gdal(*dataset.GetGeoTransform())
+                affine_m = affine_m*affine_m.rotation(-self.heading)
+                dataset.SetGeoTransform(affine_m.to_gdal())
             dataset.SetProjection(wkt)
             dataset.GetRasterBand(1).WriteArray(np.flipud(self.grid[grid_variable_name]))
             dataset.GetRasterBand(1).SetNoDataValue(np.nan)
