@@ -34,7 +34,7 @@ class DetectOpenWater(ALSPointCloudFilter):
 
     def __init__(self,fov_resolution=0.05550000071525574,kernel_size=5,
                  rflc_thres=2.5,elev_tol=0.1,elev_segment=0.2,rflc_minmax=False,
-                 rflc_tol=1.0, cluster_size=25, export_file='open_water_points.csv'):
+                 cluster_size=25, export_file='open_water_points.csv',floe_grid=False):
         """
         Initialize the filter.
         :param fov_resolution: Angular resolution of the field of view
@@ -46,7 +46,7 @@ class DetectOpenWater(ALSPointCloudFilter):
         """
         super(DetectOpenWater, self).__init__(fov_resolution=fov_resolution,kernel_size=kernel_size,
                                               rflc_thres=rflc_thres,elev_tol=elev_tol,
-                                              elev_segment=elev_segment,rflc_minmax=rflc_minmax,rflc_tol=rflc_tol,
+                                              elev_segment=elev_segment,rflc_minmax=rflc_minmax,
                                               cluster_size=cluster_size,export_file=export_file)
 
 #     def apply(self, als, do_plot=False, savefig=False):
@@ -202,15 +202,18 @@ class DetectOpenWater(ALSPointCloudFilter):
         # 2. Smoothen elevation and reflectance data for gridscale variations
         
         kernel_size = self.cfg["kernel_size"]
-        #elev_nadir_m = medfilt(elev_nadir[mask],kernel_size=kernel_size)
-        #rflc_nadir_m = medfilt(rflc_nadir[mask],kernel_size=kernel_size)
-        elev_nadir_m = uniform_filter1d(elev_nadir[mask],kernel_size)
-        rflc_nadir_m = uniform_filter1d(rflc_nadir[mask],kernel_size)
+        # #elev_nadir_m = medfilt(elev_nadir[mask],kernel_size=kernel_size)
+        # #rflc_nadir_m = medfilt(rflc_nadir[mask],kernel_size=kernel_size)
+        # elev_nadir_m = uniform_filter1d(elev_nadir[mask],kernel_size)
+        # rflc_nadir_m = uniform_filter1d(rflc_nadir[mask],kernel_size)
+        
+        elev_nadir_m = elev_nadir
+        rflc_nadir_m = rflc_nadir
         
         
         # 3. Detect global elevation minimum
-        globmin = np.nanmin(elev_nadir_m)
-        iglobmin = np.where(elev_nadir_m==globmin)[0][0]
+        globmin = np.nanmin(elev_nadir)#np.nanmin(elev_nadir_m)
+        iglobmin = np.where(elev_nadir==globmin)[0][0]#np.where(elev_nadir_m==globmin)[0][0]
         
         
         # 4. Collect list of potential open water points
@@ -218,6 +221,54 @@ class DetectOpenWater(ALSPointCloudFilter):
         elev_grad = self.cfg["elev_segment"]/als.n_lines
         owp = np.arange(elev_nadir.size)[np.abs(elev_nadir-globmin)<=np.abs(np.arange(elev_nadir.size)-iglobmin)*elev_grad+2*elev_tol]
         #print('elevation open water',owp.size)
+        
+        # Start plot if activated
+        if do_plot:
+            fig,ax = plt.subplots(2,2,sharex=True, figsize=(10,6),
+                                  gridspec_kw={'height_ratios':[1.5,1]})
+            
+            for i,iax in enumerate(ax.flatten()):
+                iax.annotate(['a)','b)','c)','d)'][i], xy=(-0.15, 1.0), xycoords="axes fraction",verticalalignment='center')
+
+            pcm=ax[0,0].pcolormesh(als.get('elevation').T)
+            ax[0,0].plot(nadir_inds[0],nadir_inds[1],'k--')
+            plt.colorbar(pcm,ax=ax[0,0],location='bottom',label='Elevation in m')
+            ax[0,0].set_yticks([])
+    
+            pcm=ax[0,1].pcolormesh(als.get('reflectance').T,cmap=plt.get_cmap('magma'))
+            ax[0,1].plot(nadir_inds[0],nadir_inds[1],'k--')
+            plt.colorbar(pcm,ax=ax[0,1],location='bottom',label='Reflectance in dB')
+            ax[0,1].set_yticks([])
+            
+            time_nadir = als.get('timestamp')[:,int(als.get('timestamp').shape[1]/2)]
+
+            ax[1,0].fill_between(np.arange(als.n_lines)[mask_roll],
+                                 (np.abs(np.arange(elev_nadir.size)-iglobmin)*elev_grad+globmin+2*elev_tol),
+                                 (np.abs(np.arange(elev_nadir.size)-iglobmin)*-(elev_grad)+globmin-2*elev_tol),color='0.9')
+            ax[1,0].plot(np.arange(als.n_lines)[mask_roll],
+                         (np.abs(np.arange(elev_nadir.size)-iglobmin)*elev_grad+globmin+2*elev_tol),'--',color='0.7')
+            ax[1,0].plot(np.arange(als.n_lines)[mask_roll],
+                         (np.abs(np.arange(elev_nadir.size)-iglobmin)*-(elev_grad)+globmin-2*elev_tol),'--',color='0.7')
+            ax[1,0].plot(np.arange(als.n_lines)[mask_roll],elev_nadir,'0.4')
+            ax[1,0].set_ylabel('Elevation in m')
+            try:
+                ax[1,0].set_xlabel('Time in s')
+                ax[1,0].set_xticks(np.linspace(0,als.n_lines-1,7,dtype='int'))
+                ax[1,0].set_xticklabels(['%i' %np.round(time_nadir[int(indt)]-time_nadir[0]) for indt in ax[1,0].get_xticks()])
+            except:
+                ax[1,0].set_xlabel('Line No.')
+            
+            ax[1,1].plot(np.arange(als.n_lines)[mask_roll],
+                         np.ones(elev_nadir.size)*self.cfg["rflc_thres"]+np.nanmean(rflc_nadir_m),'--',color='0.7')
+            ax[1,1].plot(np.arange(als.n_lines)[mask_roll],
+                         -np.ones(elev_nadir.size)*self.cfg["rflc_thres"]+np.nanmean(rflc_nadir_m),'--',color='0.7')
+            ax[1,1].plot(np.arange(als.n_lines)[mask_roll], rflc_nadir,'0.4')
+            ax[1,1].set_ylabel('Reflectance in dB')
+            try:
+                ax[1,1].set_xlabel('Time in s')
+                ax[1,1].set_xticklabels(['%i' %np.round(time_nadir[int(indt)]-time_nadir[0]) for indt in ax[1,1].get_xticks()])
+            except:
+                ax[1,1].set_xlabel('Line No.')
         
         
         # 5. Check reflectance of potential points
@@ -251,11 +302,16 @@ class DetectOpenWater(ALSPointCloudFilter):
         for i in cluster_breaks:
             if ind_start!=i:
                 inds_cluster = (nadir_inds[0][owp][ind_start:i],nadir_inds[1][owp][ind_start:i])
+                if self.proj_avail:
+                    x,y = als.x[inds_cluster],als.y[inds_cluster]
+                else:
+                    x,y = np.zeros(als.get('longitude').shape)*np.nan, np.zeros(als.get('longitude').shape)*np.nan
+                
                 cluster_info.append((np.nanmean(als.get('timestamp')[inds_cluster]),
                                      np.nanmean(als.get('longitude')[inds_cluster]),
                                      np.nanmean(als.get('latitude')[inds_cluster]),
-                                     np.nanmean([np.zeros(als.get('longitude').shape)*np.nan, als.x][self.proj_avail][inds_cluster]),
-                                     np.nanmean([np.zeros(als.get('longitude').shape)*np.nan, als.y][self.proj_avail][inds_cluster]),
+                                     np.nanmean(x),
+                                     np.nanmean(y),
                                      np.nanmean(als.get('elevation')[inds_cluster]),
                                      np.nanmean(als.get('reflectance')[inds_cluster]),
                                      np.nanmean(als.get('reflectance')[inds_cluster])-rflc_mean))
@@ -266,28 +322,16 @@ class DetectOpenWater(ALSPointCloudFilter):
         
         # 6. (optional) plot results of open water detection
         if do_plot:
-            fig,ax = plt.subplots(2,2,sharex=True, figsize=(10,6))
-
-            ax[0,0].pcolormesh(als.get('elevation').T)
-            ax[0,0].plot(nadir_inds[0],nadir_inds[1],'k--')
-    
-            ax[0,1].pcolormesh(als.get('reflectance').T)
-            ax[0,1].plot(nadir_inds[0],nadir_inds[1],'k--')
-
-            ax[1,0].plot(elev_nadir)
-            
-            ax[1,1].plot(rflc_nadir)
-
             ind_start = 0 
             for i in cluster_breaks:
-                ax[0,0].plot(nadir_inds[0][owp[ind_start:i]],nadir_inds[1][owp[ind_start:i]],'r.')
-                ax[0,1].plot(nadir_inds[0][owp[ind_start:i]],nadir_inds[1][owp[ind_start:i]],'r.')
-                ax[1,0].plot(owp[ind_start:i], elev_nadir[owp[ind_start:i]], ".")
-                ax[1,1].plot(owp[ind_start:i], rflc_nadir[owp[ind_start:i]], ".")
+                ax[0,0].scatter(nadir_inds[0][owp[ind_start:i]],nadir_inds[1][owp[ind_start:i]],c='0.85',edgecolors='0.4',zorder=10)
+                ax[0,1].scatter(nadir_inds[0][owp[ind_start:i]],nadir_inds[1][owp[ind_start:i]],c='0.85',edgecolors='0.4',zorder=10)
+                ax[1,0].plot(np.arange(als.n_lines)[mask_roll][owp[ind_start:i]], elev_nadir[owp[ind_start:i]], ".")
+                ax[1,1].plot(np.arange(als.n_lines)[mask_roll][owp[ind_start:i]], rflc_nadir[owp[ind_start:i]], ".")
                 ind_start = i + 1
             
             if savefig:
-                fig.savefig(Path(self.cfg["export_file"]).absolute().parent.joinpath('Open_water_detection_%s.jpg' %als.tcs_segment_datetime), 
+                fig.savefig(Path(self.cfg["export_file"]).absolute().parent.joinpath(als.tcs_segment_datetime.strftime('Open_water_detection_%Y%m%dT%H%M%S.jpg')), 
                             dpi=300)
                 logger.info('Stored open water detection image to %s' %Path(self.cfg["export_file"]).absolute().parent.joinpath('Open_water_detection_%s.jpg' %als.tcs_segment_datetime))
          
@@ -356,7 +400,7 @@ class AlsFreeboardConversion(object):
             if ikey not in self.cfg.keys():
                 self.cfg[ikey] = {}
         
-        for ikey,val in zip(['interp2d', 'smoothing', 'kernel'], [False, 10, 'linear']):
+        for ikey,ival in zip(['interp2d', 'smoothing', 'kernel'], [False, 10, 'linear']):
             if ikey not in self.cfg['SeaSurfaceInterpolation'].keys():
                 self.cfg['SeaSurfaceInterpolation'][ikey] = ival
                 
@@ -371,6 +415,12 @@ class AlsFreeboardConversion(object):
         else:
             self.export_file = Path('open_water_points.csv').absolute()
         logger.info('Open water points are exported to: %s' %str(self.export_file))
+        
+        if 'floe_grid' not in self.cfg['OpenWaterDetection'].keys():
+            self.cfg['OpenWaterDetection']['floe_grid'] = False
+            
+        # Store modifications in dem_cfg
+        cfg = self.cfg
         
         # Initialise interpolation function
         self.func = None
@@ -471,10 +521,11 @@ class AlsFreeboardConversion(object):
             
         
     def freeboard_computation(self, als, interp2d=False,dem_cfg=None):
-        if self.cfg['SeaSurfaceInterpolation']['interp2d'] != interp2d:
-            logger.info('Warning: value of config interp2d in the sea surface interpolation is overwritten by input!')
-            self.cfg['SeaSurfaceInterpolation']['interp2d'] = interp2d
+        #if self.cfg['SeaSurfaceInterpolation']['interp2d'] != interp2d:
+        #    logger.info('Warning: value of config interp2d in the sea surface interpolation is overwritten by input to: %i' %interp2d)
+        #    self.cfg['SeaSurfaceInterpolation']['interp2d'] = interp2d
         if self.cfg['SeaSurfaceInterpolation']['interp2d']: # Use 2d interpolation of open water points
+            logger.info('Freeboard conversion: 2d interpolation of freeboard is activated')
             try:
                 # 0. Read csv
                 self.read_csv()
@@ -487,7 +538,7 @@ class AlsFreeboardConversion(object):
                 # 2. Define 2d interpolation function
                 #self.func = SmoothBivariateSpline(self.xow,self.yow,self.eow)
                 self.func = RBFInterpolator(np.rollaxis(np.stack([self.xow,self.yow]),1,0),
-                                            self.eow,smoothing=['SeaSurfaceInterpolation']['smoothing'],
+                                            self.eow,smoothing=self.cfg['SeaSurfaceInterpolation']['smoothing'],
                                             kernel=['SeaSurfaceInterpolation']['kernel'])
                 
 
@@ -537,8 +588,9 @@ def open_water_detection_wrapper(als_filepath, dem_cfg, file_version, start_sec,
     als = alsfile.get_data(start_sec, stop_sec)
     
     # Apply offset correction to ALS data
-    ocf = OffsetCorrectionFilter()
-    ocf.apply(als)
+    if cfg['OpenWaterDetection']['floe_grid']:
+        ocf = OffsetCorrectionFilter()
+        ocf.apply(als)
     
     # Apply any filter defined
     for input_filter in dem_cfg.get_input_filter():

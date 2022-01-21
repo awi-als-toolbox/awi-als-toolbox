@@ -19,8 +19,9 @@ from affine import Affine
 
 from loguru import logger
 
-from scipy.interpolate import griddata, interp1d
+from scipy.interpolate import griddata, interp1d,UnivariateSpline
 from scipy.ndimage.filters import maximum_filter, median_filter
+from scipy.ndimage import uniform_filter
 import scipy.spatial.qhull as qhull
 
 import pandas as pd
@@ -487,7 +488,8 @@ class AlsDEM(object):
 class AlsDEMCfg(object):
 
     def __init__(self, input_filter=None, connect_keyw=None, resolution_m=1.0, segment_len_secs=30, method=None,
-                 gap_filling=None, grid_pad_fraction=0.05, projection=None, grid_mapping=None, freeboard=None):
+                 gap_filling=None, grid_pad_fraction=0.05, projection=None, grid_mapping=None, freeboard=None, 
+                 offset_correction=None):
         """
         Settings for DEM generation including spatial and temporal resolution, gridding settings and
         target projection
@@ -540,7 +542,18 @@ class AlsDEMCfg(object):
         # Freeboard Conversion
         self.freeboard = freeboard
         
-
+        # Offset correction
+        self.offset_correction = offset_correction
+        if self.offset_correction is not None:
+            defaults = {'use_low_reflectance_tie_points':False,
+                        'extract_low_reflectance_regions':{},'compute_cor_func':{}}
+            for idef in defaults.keys():
+                if not idef in self.offset_correction.keys():
+                    self.offset_correction[idef] = defaults[idef]
+            if self.offset_correction['use_low_reflectance_tie_points']:
+                self.offset_correction['compute_cor_func']['tie_point_times'] = 'stored'
+    
+    
     @classmethod
     def from_cfg(cls, yaml_filepath):
         """
@@ -678,13 +691,13 @@ class ALSGridCollection(object):
             grid_data = ALSL4Grid(filepath)
             self.grids.append(grid_data)
 
-    def get_merged_grid(self,return_fnames=False,cfg=None,use_low_reflectance_tiepoints=False):
+    def get_merged_grid(self,return_fnames=False,cfg=None):#,use_low_reflectance_tiepoints=False):
         x_min, x_max = self.xc_bounds
         y_min, y_max = self.yc_bounds
         
         # Check if correction is activated for variables
         try:
-            correction  = len(cfg.correcting_fields)>0
+            correction  = len(cfg.offset_correction['correcting_fields'])>0
             uncertainty = np.sum([i.endswith('_uncertainty') for i in cfg.variable_attributes.keys()])>0
         except:
             correction  = False
@@ -699,23 +712,26 @@ class ALSGridCollection(object):
                 if i in self.ignore_list:
                     continue
                 logger.info("... %g / %g done [ref_time:%s]" % (i+1, self.n_grids, grid.reftime))
-                merged_grid.add_grid(grid,use_low_reflectance_tiepoints=use_low_reflectance_tiepoints)
+                merged_grid.add_grid(grid)#,use_low_reflectance_tiepoints=cfg.offset_correction['use_low_reflectance_tiepoints'])
             logger.info("... %g / %g done" % (self.n_grids, self.n_grids))
         
             logger.info("Apply elevation correction:")
             # Compute correction function for each field in correcting_fields
             for ivar in merged_grid.correcting_fields:
-                print(ivar)
                 if ivar=='freeboard':
                     # Read timings of open water points
                     owfile = Path(self.filepaths[0]).parent.joinpath('open_water_points.csv')
                     df = pd.read_csv(owfile)
                     df = df.sort_values('timestamp')
-                    zero_times = np.array(df['timestamp'])
+                    tie_point_times = np.array(df['timestamp'])
                 else:
-                    zero_times = None
-                merged_grid.correction[ivar].compute_cor_func(zero_times=[None,'stored'][use_low_reflectance_tiepoints],#zero_times,
-                                                              export_dir=merged_grid.export_dir)
+                    tie_point_times = None
+                logger.info("Offest correction term is computed for variable: %s" ivar)
+                cfg.offset_correction['compute_cor_func']['export_dir'] = merged_grid.export_dir
+                merged_grid.correction[ivar].compute_cor_func(**cfg.offset_correction['compute_cor_func'])
+                #merged_grid.correction[ivar].compute_cor_func(tie_point_times=[None,'stored'][use_low_reflectance_tiepoints],
+                #                                              add_tendency=[False,True][use_low_reflectance_tiepoints],#tie_point_times,
+                #                                              export_dir=merged_grid.export_dir)
                 
             # Reset gridded fields for new computation with correction term
             merged_grid.reset_gridded_fields()
@@ -894,9 +910,10 @@ class ALSMergedGrid(object):
         # Check which variables to grid
         self.coord_names = ['lat', 'lon', 'xc', 'yc', 'time', 'time_bnds']
         self.cfg = cfg
+        print(self.cfg.offset_correction['correcting_fields'])
         try:
             self.grid_variable_names = [i for i in self.cfg.variable_attributes.keys() if i not in self.coord_names and not i.endswith('_uncertainty')]
-            self.correcting_fields = self.cfg.correcting_fields
+            self.correcting_fields = self.cfg.offset_correction['correcting_fields']
             self.correction = {ivar:ALSCorrection(ivar) for ivar in self.correcting_fields}
             self.uncertainty_fields = [i.split('_')[0] for i in self.cfg.variable_attributes.keys() if i not in self.coord_names and i.endswith('_uncertainty')]
             logger.info("Unvertainty computation activated for: %s" %", ".join(self.uncertainty_fields))
@@ -945,7 +962,7 @@ class ALSMergedGrid(object):
         
         
 
-    def add_grid(self, grid, use_low_reflectance_tiepoints=False):
+    def add_grid(self, grid):#, use_low_reflectance_tiepoints=False):
         # Save data directory as export directory if not other specified in cfg file
         if self.export_dir is None:
             self.export_dir = grid.filepath.parent
@@ -981,17 +998,24 @@ class ALSMergedGrid(object):
         for grid_variable_name in self.grid_variable_names:
             if grid_variable_name in self.correcting_fields and 'timestamp' in self.grid_variable_names:
                 if not self.correction[grid_variable_name].data_avail:
-                    # Storing mean 
+                    # Storing mean for intervals
+                    
                     self.correction[grid_variable_name].mean_elev = np.append(self.correction[grid_variable_name].mean_elev, 
                                                                               np.array([np.nanmean(grid.nc[grid_variable_name].values)]))
                     self.correction[grid_variable_name].mean_elev_t = np.append(self.correction[grid_variable_name].mean_elev_t, 
                                                                               np.array([np.nanmean(grid.nc['timestamp'].values)]))
-                    if use_low_reflectance_tiepoints and grid_variable_name=='elevation':
-                        t_ref,e_ref = extract_low_reflectance_regions(grid)
+                    
+                    # Detect low reflectance tie points
+                    if self.cfg.offset_correction['use_low_reflectance_tie_points'] and grid_variable_name=='elevation':
+                        t_ref,e_ref,e_bckg = extract_low_reflectance_regions(grid,
+                                                                             **self.cfg.offset_correction['extract_low_reflectance_regions'])
                         self.correction[grid_variable_name].t_reg_ref = np.append(self.correction[grid_variable_name].t_reg_ref, 
                                                                                   np.array(t_ref))
                         self.correction[grid_variable_name].e_reg_ref = np.append(self.correction[grid_variable_name].e_reg_ref, 
                                                                                   np.array(e_ref))
+                        self.correction[grid_variable_name].e_bckg_ref = np.append(self.correction[grid_variable_name].e_bckg_ref, 
+                                                                                  np.array(e_bckg))
+                        
                     # Check for overlapping parts
                     if np.any(np.isfinite(self.grid[grid_variable_name][merged_valid_indices])):
                         mask_overlap = np.where(np.isfinite(self.grid[grid_variable_name][merged_valid_indices]))
@@ -1097,7 +1121,6 @@ class ALSMergedGrid(object):
                 
                 XC,YC = np.meshgrid(self.xc,self.yc)
                 
-                print(self.proj4str)
                 icepos, self.heading = IceCoordinateSystem(refstat).get_latlon_coordinates(XC, YC, self.reftime,proj4str=self.proj4str, return_heading=True)
                 
                 self.lons = icepos.longitude; self.lats = icepos.latitude
@@ -1121,7 +1144,6 @@ class ALSMergedGrid(object):
             ds.attrs[key] = self.cfg.global_attributes.get(key)
         ds.attrs['projection'] = self.proj4str
         ds.attrs['projection_heading'] = self.heading
-        print(ds.attrs)
 
         # Turn on compression for all variables
         comp = dict(zlib=True)
@@ -1148,7 +1170,7 @@ class ALSMergedGrid(object):
             dataset = driver.Create(output_path, self.dims[1], self.dims[0], 1, gdal.GDT_Float32)
             dataset.SetGeoTransform((self.x_min, self.res, 0, self.y_max, 0, -self.res))
             # Check if coordinate system is rotated
-            if hasatrr(self,'heading'):
+            if hasattr(self,'heading'):
                 affine_m = Affine.from_gdal(*dataset.GetGeoTransform())
                 affine_m = affine_m*affine_m.rotation(-self.heading)
                 dataset.SetGeoTransform(affine_m.to_gdal())
@@ -1229,35 +1251,52 @@ class ALSCorrection(object):
         
         self.t_reg_ref   = np.array([]) # Times for which a reference solution is known
         self.e_reg_ref   = np.array([]) # Known reference solution
+        self.e_bckg_ref  = np.array([]) # Reference of background mean elevation
         
 
-    def compute_cor_func(self, smpl_points=500, zero_times=None, zero_int=1,export_dir='./'):
+    def compute_cor_func(self, smpl_points=500, tie_point_times=None, add_tendency=False, tie_point_bin_length=1, export_dir='./'):
+        """ Computes the offset correction function
+        :param smpl_points: number of points at which an offset correction is computed
+        :param tie_point_times: Information (at least timing) of tie points, for which the correction term is set: 
+                                if ndim=1 (N,) only time are given , if ndim=2 (2,N) time and correction term at tie point,
+                                if ndim=2 (3,N) time, correction term at tie points, and background aroung tie points are given,
+        :param add_tendecy: adds tendecies to all time points without tie point constraints
+        :param tie_point_bin_length: length of the time bin around tie points"""
+        
+        self.tie_point_times = tie_point_times
+        
         self.export_dir = export_dir
+        if self.tie_point_times=='mean':
+            self.tie_point_times=None
+            add_tendency = True
+            
         if self.diff.size>0:
             # (A) Fit all differences into on time dependent curve
             # This curve will be the time derivative of the correction term
             #  1. Generate temporal tie points
-            #    1.1 Check for zero_times (time points where correction should be zero)
-            
-            print (zero_times)
-            if zero_times is None or zero_times=='mean':
+            #    1.1 Check for self.tie_point_times (time points where correction should have a specific value)
+
+            if self.tie_point_times is None: #if self.tie_point_times is None or self.tie_point_times=='mean':
                 self.t_bins = np.linspace(np.min(self.tmpstmp_s),
                                           np.max(self.tmpstmp_e)+1,
                                           smpl_points+1)
             else:
-                if np.array(zero_times).ndim == 2:
-                    zero_vals  = zero_times[:,1] 
-                    zero_times = zero_times[:,0]
-                elif zero_times == 'stored':
+                if np.array(self.tie_point_times).ndim == 2:
+                    self.tie_point_times = self.tie_point_times[:,0]
+                    self.tie_point_vals  = self.tie_point_times[:,1] 
+                    self.tie_point_bckg  = self.tie_point_times[:,0] 
+                elif self.tie_point_times == 'stored':
                     logger.info('Offset correction computation uses zero times from stored reference values')
-                    zero_times = self.t_reg_ref
-                    zero_vals = self.e_reg_ref
+                    self.tie_point_times = self.t_reg_ref
+                    self.tie_point_vals = self.e_reg_ref
+                    self.tie_point_bckg = self.e_bckg_ref
                 else:
-                    zero_vals = np.zeros(zero_times.size)
+                    self.tie_point_vals = np.zeros(self.tie_point_times.size)
+                    self.tie_point_bckg = np.zeros(self.tie_point_times.size)
                 
-                # Generate bins around zero_times
-                t0_s = zero_times-0.5*zero_int
-                t0_e = zero_times+0.5*zero_int
+                # Generate bins around self.tie_point_times
+                t0_s = self.tie_point_times-0.5*tie_point_bin_length
+                t0_e = self.tie_point_times+0.5*tie_point_bin_length
                 
                 tb0 = [t0_s[0]]
                 for i in range(t0_s.size-1):
@@ -1275,24 +1314,27 @@ class ALSCorrection(object):
                 # Merge both bins together
                 self.t_bins = tb0
                 for ibin in t_bins:
-                    if np.all(np.abs(np.array(tb0)-ibin)>0.5*zero_int):
+                    if np.all(np.abs(np.array(tb0)-ibin)>0.5*tie_point_bin_length):
                         self.t_bins.append(ibin)
                 self.t_bins = np.sort(np.array(self.t_bins))
-                
-            print (zero_times)
+
 
             #  2. Bin start and end time of overlapping segments to tie point bins
             bins_s = np.digitize(self.tmpstmp_s,self.t_bins)-1
             bins_e = np.digitize(self.tmpstmp_e,self.t_bins)-1
             
-            if zero_times=='mean':
-                bins_m = np.digitize(self.mean_elev_t,self.t_bins)-1
-                # Check if there are segments with mean elevation outside the time period of overlapping data
+            if add_tendency: #self.tie_point_times=='mean':
+                # Add tendency to all bins!
+                bins_m = np.arange(self.t_bins.size-1) # Requires interpolation of mean elevation!!
+                
+                # # Old code
+                # bins_m = np.digitize(self.mean_elev_t,self.t_bins)-1
+                # # Check if there are segments with mean elevation outside the time period of overlapping data
                 bins_m[bins_m<0] = 0
                 bins_m[bins_m>=self.t_bins.size-1] = self.t_bins.size-2
             
             #  3. Mark which tie points lie within the start and end time
-            if zero_times=='mean':
+            if add_tendency: #self.tie_point_times=='mean':
                 self.matrix = np.zeros((bins_e.size+bins_m.size,self.t_bins.size-1))
             else:
                 self.matrix = np.zeros((bins_e.size,self.t_bins.size-1))
@@ -1300,11 +1342,11 @@ class ALSCorrection(object):
             self.matrix[np.arange(bins_e.size),bins_s] -= 1
             self.matrix[np.arange(bins_e.size),bins_e] += 1
             
-            if zero_times=='mean':
+            if add_tendency: #self.tie_point_times=='mean':
                 self.matrix[bins_e.size+np.arange(bins_m.size),bins_m] += 1
                  
             #     Set correction term for zero for some times
-            if zero_times is None:
+            if self.tie_point_times is None:
                 ind_zero = [0]
                 #for iind in ind_zero:
                 #    # Add condition that c[ind_zero] should be zero but as part of 
@@ -1312,25 +1354,41 @@ class ALSCorrection(object):
                 #    matrix_set_zero = np.zeros(matrix[0,:].shape)
                 #    matrix_set_zero[iind] = 1
                 #    self.matrix = np.vstack([matrix_set_zero,matrix])
-            elif zero_times=='mean':
-                ind_zero = []
+            
             else:
-                ind_zero = np.digitize(zero_times,self.t_bins)-1
+                ind_zero = np.digitize(self.tie_point_times,self.t_bins)-1
                 ind_zero[ind_zero<=0] = 0
                 ind_zero[ind_zero>=self.t_bins.size-1] = self.t_bins.size-2
                 
-            print (zero_times)
+            #elif self.tie_point_times=='mean':
+            #    ind_zero = []
                 
-            #     Force ind_zero to be zeros or zero_vals:
+                
+            #     Force ind_zero to be zeros or self.tie_point_vals:
             #      (0) Initialize solution vector
             self.solution = self.diff
+            if add_tendency:
+                # Interpolate mean elevation to all bins
+                self.mean_int = interp1d(self.mean_elev_t-self.t_bins[0], self.mean_elev, kind='linear',bounds_error=False,
+                                         fill_value=(self.mean_elev[0],
+                                                     self.mean_elev[-1]))(0.5*(self.t_bins[:-1]+self.t_bins[1:])-self.t_bins[0])
+                
+                if self.tie_point_times is None:
+                    self.solution = np.concatenate([np.concatenate([self.solution,self.mean_int-np.mean(self.mean_int)])])
+                else:
+                    logger.info('Uses background elevation around tie points as tendency level')
+                    self.bckg_int = interp1d(self.tie_point_times-self.t_bins[0], self.tie_point_bckg, kind='linear',bounds_error=False,
+                                         fill_value=(self.tie_point_bckg[0],
+                                                     self.tie_point_bckg[-1]))(0.5*(self.t_bins[:-1]+self.t_bins[1:])-self.t_bins[0])
+                    #self.bckg_int = UnivariateSpline(self.tie_point_times-self.t_bins[0], self.tie_point_bckg,
+                    #                                 s=0.03,ext='const')(0.5*(self.t_bins[:-1]+self.t_bins[1:])-self.t_bins[0])
+                    self.solution = np.concatenate([np.concatenate([self.solution,self.mean_int-self.bckg_int])])
+
             #      (I) Remove all columns/bins that represent open water
             for iind in np.unique(ind_zero):
-                print(zero_times is not None and zero_times!='mean')
-                if zero_times is not None and zero_times!='mean':
-                    print('in loop')
+                if self.tie_point_times is not None: #self.tie_point_times!='mean':
                     # Correction value for zero time
-                    cor_val = np.mean(zero_vals[ind_zero==iind])
+                    cor_val = np.mean(self.tie_point_vals[ind_zero==iind])
                     # Check all overlap in zero time and adjust known offset to solution
                     self.solution[self.matrix[:,iind]==1] -=cor_val
                     self.solution[self.matrix[:,iind]==-1] +=cor_val
@@ -1342,26 +1400,26 @@ class ALSCorrection(object):
 
             self.matrix = self.matrix[ind_r[0],:]
             self.matrix = self.matrix[:,ind_c[0]]
-                        
-
-            print (zero_times)
                 
             #          Initialize solution vector with differences in overlapping regions
-            if zero_times=='mean':
-                #solution = np.concatenate([np.zeros((len(ind_zero))),np.concatenate([self.diff,self.mean_elev-np.mean(self.mean_elev)])])[ind_r]
-                self.solution = np.concatenate([np.zeros((len(ind_zero))),np.concatenate([self.solution,self.mean_elev-np.mean(self.mean_elev)])])[ind_r]
-            else:
-                #self.solution = np.concatenate([np.zeros((len(ind_zero))),self.diff])[ind_r]
-                #self.solution = np.concatenate([np.zeros((1)),self.solution])[ind_r]#len(ind_zero))),self.solution])[ind_r]
-                self.solution = self.solution[ind_r]
+            
+            # if add_tendency: #self.tie_point_times=='mean':
+            #     #solution = np.concatenate([np.zeros((len(ind_zero))),np.concatenate([self.diff,self.mean_elev-np.mean(self.mean_elev)])])[ind_r]
+            #     self.solution = np.concatenate([np.zeros((len(ind_zero))),np.concatenate([self.solution,self.mean_elev-np.mean(self.mean_elev)])])[ind_r]
+            # else:
+            #     #self.solution = np.concatenate([np.zeros((len(ind_zero))),self.diff])[ind_r]
+            #     #self.solution = np.concatenate([np.zeros((1)),self.solution])[ind_r]#len(ind_zero))),self.solution])[ind_r]
+            #     self.solution = self.solution[ind_r]
+                
+            self.solution = self.solution[ind_r]
 
             #  4. Find best curve that fits best to all time averages
             self.c = np.linalg.lstsq(self.matrix, self.solution, rcond=None)[0]
             
             #      (II) Add again zero times to solution
-            if zero_times is not None:
+            if self.tie_point_times is not None:
                 sort_array = np.vstack([np.hstack([ind_zero,ind_c[0]]),
-                                        np.hstack([zero_vals,self.c])])#np.zeros(np.array(ind_zero).shape),self.c])])
+                                        np.hstack([self.tie_point_vals,self.c])])#np.zeros(np.array(ind_zero).shape),self.c])])
                 self.ind_c = sort_array[:,sort_array[0,:].argsort()][0,:].astype('int')
                 self.c = sort_array[:,sort_array[0,:].argsort()][1,:]
             else:
@@ -1377,7 +1435,7 @@ class ALSCorrection(object):
             self._export_correction()
             
             self.data_avail = True
-            self.zero_times = zero_times
+            
             
             # Store correction function for later use
         
@@ -1411,7 +1469,7 @@ class ALSCorrection(object):
 
 
             
-#     def compute_cor_func(self, smpl_points=500, zero_times=None):
+#     def compute_cor_func(self, smpl_points=500, tie_point_times=None):
 #         if self.diff.size>0:
 #             # (A) Fit all differences into on time dependent curve
 #             # This curve will be the time derivative of the correction term
@@ -1431,10 +1489,10 @@ class ALSCorrection(object):
 #             matrix[np.arange(bins_e.size),bins_e] += 1
                  
 #             # Set correction term for zero for some times
-#             if zero_times is None:
+#             if tie_point_times is None:
 #                 ind_zero = [0]
 #             else:
-#                 ind_zero = np.digitize(zero_times,self.t_bins)
+#                 ind_zero = np.digitize(tie_point_times,self.t_bins)
 #                 ind_zero[ind_zero<=0] = 0
 #                 ind_zero[ind_zero>=self.t_bins.size] = self.t_bins.size-1
 #             for iind in ind_zero:
@@ -1464,7 +1522,40 @@ class ALSCorrection(object):
 #             self.data_avail = True
 
 
-def extract_low_reflectance_regions(grid, thres=2,filt_size=5,chunk_size=1):
+# def extract_low_reflectance_regions(grid, thres=2,filt_size=5,chunk_size=1):
+#     # Filter reflectance
+#     filt_ref = median_filter(grid.nc['reflectance'],size=filt_size)
+#     filt_ref[np.isnan(grid.nc['reflectance'])] = np.nan
+    
+#     # Filter regions of low reflectance
+#     mask = np.all([np.abs(filt_ref-np.nanmean(grid.nc['reflectance']))>thres,
+#                    grid.nc['elevation']<np.nanmedian(grid.nc['elevation'])],axis=0)
+    
+#     # Extract time and elevation references for these regions
+#     t_reg = grid.nc['timestamp'].data[mask]
+#     eref_reg = grid.nc['elevation'].data[mask]-grid.nc['elevation_reference'].data[mask]
+    
+#     t = []
+#     eref = []
+#     if t_reg.size>10:
+#         # Sort arrays by time
+#         inds = np.argsort(t_reg)
+#         t_reg = t_reg[inds]
+#         eref_reg = eref_reg[inds]
+
+#         # Chunk into 1s slices
+#         ic = 0
+#         used_mask = np.zeros(t_reg.shape).astype('bool')
+#         while np.sum(used_mask)<used_mask.size or ic>30:
+#             t.append(np.nanmean(t_reg[~used_mask][(t_reg[~used_mask]-t_reg[~used_mask][0])<chunk_size]))
+#             eref.append(np.nanmean(eref_reg[~used_mask][(t_reg[~used_mask]-t_reg[~used_mask][0])<chunk_size]))
+#             used_mask = (t_reg-t_reg[~used_mask][0])<chunk_size
+#             ic += 1
+            
+#     return t, eref
+
+
+def extract_low_reflectance_regions(grid, thres=3,filt_size=5,chunk_size=0.5,min_num_points=100,background_scale=200):
     # Filter reflectance
     filt_ref = median_filter(grid.nc['reflectance'],size=filt_size)
     filt_ref[np.isnan(grid.nc['reflectance'])] = np.nan
@@ -1477,21 +1568,41 @@ def extract_low_reflectance_regions(grid, thres=2,filt_size=5,chunk_size=1):
     t_reg = grid.nc['timestamp'].data[mask]
     eref_reg = grid.nc['elevation'].data[mask]-grid.nc['elevation_reference'].data[mask]
     
+    
+    # Generate background elevation around leads
+    eref = grid.nc['elevation'].data.copy() #- grid.nc['elevation_reference'].data
+    mask_eref = np.isfinite(eref)
+    eref[~mask_eref] = 0
+    emean = uniform_filter(eref,size=background_scale)/uniform_filter(mask_eref.astype('float'),size=background_scale)
+    emean[~mask_eref] = np.nan
+    ebckg_reg = emean[mask] - eref_reg
+
+    # Initialze data arrays for clusters
     t = []
     eref = []
+    ebckg = []
+    
+    # Group mask into clusters
     if t_reg.size>10:
         # Sort arrays by time
         inds = np.argsort(t_reg)
         t_reg = t_reg[inds]
         eref_reg = eref_reg[inds]
+        ebckg_reg = ebckg_reg[inds]
 
         # Chunk into 1s slices
         ic = 0
         used_mask = np.zeros(t_reg.shape).astype('bool')
-        while np.sum(used_mask)<used_mask.size or ic>30:
-            t.append(np.nanmean(t_reg[~used_mask][(t_reg[~used_mask]-t_reg[~used_mask][0])<chunk_size]))
-            eref.append(np.nanmean(eref_reg[~used_mask][(t_reg[~used_mask]-t_reg[~used_mask][0])<chunk_size]))
+        while np.sum(used_mask)<used_mask.size and ic<60:
+            # Check for size of potential cluster
+            if np.size(t_reg[~used_mask][(t_reg[~used_mask]-t_reg[~used_mask][0])<chunk_size])>min_num_points:
+                # Store mean values of cluster
+                t.append(np.nanmean(t_reg[~used_mask][(t_reg[~used_mask]-t_reg[~used_mask][0])<chunk_size]))
+                eref.append(np.nanmean(eref_reg[~used_mask][(t_reg[~used_mask]-t_reg[~used_mask][0])<chunk_size]))
+                ebckg.append(np.nanmean(ebckg_reg[~used_mask][(ebckg_reg[~used_mask]-ebckg_reg[~used_mask][0])<chunk_size]))
+            
+            # Mark used cluster points
             used_mask = (t_reg-t_reg[~used_mask][0])<chunk_size
             ic += 1
             
-    return t, eref
+    return t, eref, ebckg

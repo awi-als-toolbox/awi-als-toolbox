@@ -193,7 +193,7 @@ def read_grid_wrapper(als_filepath, dem_cfg, output_cfg, file_version, start_sec
         ocf.apply(als)
         # Apply freeboard computation
         ALSfreeboard = freeboard.AlsFreeboardConversion(cfg=dem_cfg.freeboard)
-        ALSfreeboard.freeboard_computation(als,interp2d=True,dem_cfg=dem_cfg)
+        ALSfreeboard.freeboard_computation(als,dem_cfg=dem_cfg)
         
         #fig,ax = plt.subplots(1,1)
         #ax.pcolormesh(als.get('elevation'),vmin=-3,vmax=3)
