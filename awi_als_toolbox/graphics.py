@@ -172,7 +172,6 @@ class AlsDemMap(object):
         cb1.set_label(self.cfg.get_label("zaxis"), fontsize=16, color="#4b4b4d")
         self.ax_cmap.tick_params(axis='both', color="#bcbdbf", labelcolor="#4b4b4d", labelsize=14)
 
-
     def _plot_globe(self):
         """
         Add an orthographic/full globe view with the marked position of the DEM segment
@@ -194,7 +193,6 @@ class AlsDemMap(object):
             m.plot(x, y, color="#003e6e", lw=1, latlon=True, zorder=100)
 
         m.drawmapboundary(color='#00ace5', linewidth=0.1)
-
 
     def _plot_flight_track(self):
         """
@@ -220,7 +218,6 @@ class AlsDemMap(object):
         lon_min, lat_min = m(data_extent[0], data_extent[1], inverse=True)
         lon_max, lat_max = m(data_extent[2], data_extent[3], inverse=True)
         self.map_extent = [lon_min, lat_min, lon_max, lat_max]
-
 
     def _plot_metadata(self):
         """ Write metadata properties in the lower right corner of the plot"""

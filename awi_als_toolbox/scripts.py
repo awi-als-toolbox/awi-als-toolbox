@@ -5,121 +5,235 @@ Module that contains functions for standardized ALS processing workflows. These 
 meant to be called by more specific scripts.
 """
 
-import os
 import sys
+import multiprocessing
+from pathlib import Path
+
+import matplotlib.pylab as plt
 
 # This matplotlib setting is necessary if the script
 # is run in a shell via ssh and no window manager
-import matplotlib
+# import matplotlib
 # matplotlib.use("agg")
 
 from loguru import logger
 
-from awi_als_toolbox.data import FlightGPSData
-from awi_als_toolbox.reader import AirborneLaserScannerFile
-from awi_als_toolbox.demgen import AlsDEM, AlsDEMCfg
-from awi_als_toolbox.export import AlsDEMNetCDF
-from awi_als_toolbox.filter import AtmosphericBackscatterFilter
+from . import AirborneLaserScannerFile, AirborneLaserScannerFileV2, AlsDEM
+from .export import AlsDEMNetCDF
+import awi_als_toolbox.freeboard as freeboard
+from awi_als_toolbox.filter import OffsetCorrectionFilter
 
 
-def als_l1b_dem_generation_workflow(als_filepath, grid_preset, parameter, dem_cfg,
-                                    gps=None, metadata=None, **connect_keyw):
+
+def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1, use_multiprocessing=False,
+                mp_reserve_cpus=2):
     """
-    Creates quickview plots of a specific ALS l1b elevation file
-    :param source_dir: (str) the path of the laserscanner file
-    :param als_filename: (dict) configuration including the filename and the preset for gridding/quickview process
-    :param grid_preset: (str) name of the gridding preset (sea_ice_low or sea_ice_high)
-    :param gps: (xarray.Dataset) gps data of the entire flight
-    :param metadata: (dict) metadata dictionary
-    :param connect_keyw: (dict) keywords to be passed for alsfile.connect (e.g. device_name_override)
-    :return: None
+    Grid a binary point cloud file with given grid specification and in segments of
+    a given temporal coverage
+    :param als_filepath: (str, pathlib.Path): The full filepath of the binary ALS point cloud file
+    :param dem_cfg: (awi_als_toolbox.demgen.AlsDEMCfg):
+    :param output_cfg:
+    :param file_version:
+    :param use_multiprocessing:
+    :param mp_reserve_cpus:
+    :return:
     """
 
-    # Step 1: connect to the laserscanner file
-    source_dir, als_filename = os.path.split(als_filepath)
-    logger.info("Open ALS binary file: %s" % als_filename)
-    try:
-        alsfile = AirborneLaserScannerFile(als_filepath, **connect_keyw)
-    except BaseException:
-        logger.error("Unexpected error -> skip file")
-        print(sys.exc_info()[1])
-        return
+    # Get ALS file
+    als_filepath = Path(als_filepath)
+    alsfile = get_als_file(als_filepath, file_version, dem_cfg)
 
-    # Get the gridding settings
-    dem_cfg = AlsDEMCfg.preset(grid_preset, **dem_cfg)
-
+    # --- Step 3: loop over the defined segments ---
     # Get a segment list based on the suggested segment lengths for the gridding preset
+    # TODO: Evaluate the use of multi-processing for the individual segments.
     segments = alsfile.get_segment_list(dem_cfg.segment_len_secs)
     n_segments = len(segments)
-
-    flightdata = None
-    if gps is not None:
-        logger.info("Adding GPS flight data")
-        seconds = gps.TIME.values.astype(float)*0.001
-        time = alsfile.timestamp2time(seconds)
-        flightdata = FlightGPSData(time, gps.LONGITUDE.values, gps.LATITUDE.values, gps.ALTITUDE.values)
-
-    # Only necessary if multiprocessing is used
     logger.info("Split file in %d segments" % n_segments)
-    for i, (start_sec, stop_sec) in enumerate(segments):
 
-        logger.info("Processing %s [%g:%g] (%g/%g)" % (als_filename, start_sec, stop_sec, i+1, n_segments))
+    # Substep (Only valid if multi-processing should be used
+    process_pool = None
+    if use_multiprocessing:
+        # Estimate how much workers can be added to the pool
+        # without overloading the CPU
+        n_processes = multiprocessing.cpu_count()
+        n_processes -= mp_reserve_cpus
+        n_processes = n_processes if n_processes > 1 else 1
+        # Create process pool
+        logger.info("Use multi-processing with {} workers".format(n_processes))
+        process_pool = multiprocessing.Pool(n_processes)
 
-        # Extract the segment
-        try:
-            als = alsfile.get_data(start_sec, stop_sec)
-        except BaseException:
-            msg = "Unhandled exception while reading %s:%g-%g -> Skip segment"
-            logger.error(msg % (als_filename, start_sec, stop_sec))
-            print(sys.exc_info()[1])
-            continue
+        
+    # Grid the data and write the output in a netCDF file
+    # This can either be run in parallel or
+    if use_multiprocessing:
+        # Parallel processing of all segments
+        results = [process_pool.apply_async(read_grid_wrapper, args=(als_filepath, dem_cfg, 
+                                                                     output_cfg, file_version,
+                                                                     start_sec, stop_sec, 
+                                                                     i, n_segments)) 
+                   for i, (start_sec, stop_sec) in enumerate(segments)]
+        result =[iresult.get() for iresult in results]
+    else:
+        # Loop over all segments
+        for i, (start_sec, stop_sec) in enumerate(segments):
+            read_grid_wrapper(als_filepath, dem_cfg, output_cfg, file_version,
+                              start_sec, stop_sec, i, n_segments)
 
-        # Apply atmospheric filter
-        atmfilter = AtmosphericBackscatterFilter()
-        atmfilter.apply(als)
+    if use_multiprocessing:
+        process_pool.close()
+        process_pool.join()
 
-        if metadata is not None:
-            logger.info("Adding metadata")
-            als.metadata.set_attributes(metadata["global_attrs"])
-            als.metadata.set_variable_attributes(metadata["variable_attrs"])
+    
+def get_als_segments(als_filepaths, dem_cfg, file_version=1):
+    """
+    Function to return segements of all binary ALS point cloud files provided
+    :param als_filepaths: list of full filepaths of all binary ALS point could files
+    :param dem_cfg: (awi_als_toolbox.demgen.AlsDEMCfg)
+    "param file_version:
+    :return:"
+    """
+    output = {'als_filepath': [],
+              'start_sec': [],
+              'stop_sec': [],
+              'i': [],
+              'n_segments': []}
+    
+    for ifile in als_filepaths:
+        als_filepath = Path(ifile)
+        alsfile = get_als_file(als_filepath, file_version, dem_cfg)
 
-        # Validate segment
-        # -> Do not try to grid a segment that has no valid elevations
-        if not als.has_valid_data:
-            logger.error("... Invalid data in %s:%g-%g -> skipping segment" % (als_filename, start_sec, stop_sec))
-            continue
+        # --- Step 3: loop over the defined segments ---
+        # Get a segment list based on the suggested segment lengths for the gridding preset
+        # TODO: Evaluate the use of multi-processing for the individual segments.
+        segments = alsfile.get_segment_list(dem_cfg.segment_len_secs)
+        n_segments = len(segments)
+        logger.info("Split file in %d segments" % n_segments)
 
-        if flightdata is not None:
-            als.set_flightdata(flightdata)
+        for i, (start_sec, stop_sec) in enumerate(segments):
+            output['als_filepath'].append(als_filepath)
+            output['start_sec'].append(start_sec)
+            output['stop_sec'].append(stop_sec)
+            output['i'].append(i)
+            output['n_segments'].append(n_segments)
+    
+    logger.info("Overall number of segments: %i" %len(output['i']))
+    
+    return output
+    
+        
+def get_als_file(als_filepath, file_version, dem_cfg):
+    """
+    Open a binary point cloud file with given grid specification and slice in segments of
+    a given temporal coverage
+    :param als_filepath: (str, pathlib.Path): The full filepath of the binary ALS point cloud file
+    :param dem_cfg: (awi_als_toolbox.demgen.AlsDEMCfg):
+    :param file_version:
+    :return: awi_als_toolbox.ALSPointCloudData
+    """
+    # --- Step 1: connect to the ALS binary point cloud file ---
+    #
+    # At the moment there are two options:
+    #
+    #   1) The binary point cloud data from the "als_level1b" IDL project.
+    #      The output is designated as file version 1
+    #
+    #   2) The binary point cloud data from the "als_level1b_seaice" IDL project.
+    #      The output is designated as file version 2 and can be identified
+    #      by the .alsbin2 file extension
 
-        # Grid the data and create a netCDF
-        # NOTE: This can be run in parallel for different segments, therefore option to use
-        #       multiprocessing
-        export_dir = source_dir
-        gridding_workflow(als, dem_cfg, export_dir)
+    # Input validation
+    als_filepath = Path(als_filepath)
+    if not als_filepath.is_file():
+        logger.error("File does not exist: {}".format(str(als_filepath)))
+        sys.exit(1)
 
+    # Connect to the input file
+    # NOTE: This step will not read the data, but read the header metadata information
+    #       and open the file for sequential reading.
+    logger.info("Open ALS binary file: {} (file version: {})".format(als_filepath.name, file_version))
+    if file_version == 1:
+        alsfile = AirborneLaserScannerFile(als_filepath, **dem_cfg.connect_keyw)
+    elif file_version == 2:
+        alsfile = AirborneLaserScannerFileV2(als_filepath)
+    else:
+        logger.error("Unknown file format: {}".format(dem_cfg.input.file_version))
+        sys.exit(1)
+        
+    return alsfile
+        
+    
+def read_grid_wrapper(als_filepath, dem_cfg, output_cfg, file_version, start_sec, stop_sec, i, n_segments):
+    """
+    Wrapper of reading and gridding_workflow. May be joined with gridding_workflow in the future
+    """
+    
+    # Get ALS file
+    alsfile = get_als_file(als_filepath, file_version, dem_cfg)
+    
+    # Extract the segment
+    # NOTE: This includes file I/O
+    logger.info("Processing %s [%g:%g] (%g/%g)" % (als_filepath.name, start_sec, stop_sec, i+1, n_segments))
+    als = alsfile.get_data(start_sec, stop_sec)
 
-def gridding_workflow(als, dem_cfg, export_dir):
+    # TODO: Replace with try/except with actual Exception
+    # except BaseException:
+    #     msg = "Unhandled exception while reading %s:%g-%g -> Skip segment"
+    #     logger.error(msg % (als_filepath.name, start_sec, stop_sec))
+    #     print(sys.exc_info()[1])
+    #     continue
+
+    # Apply any filter defined
+    for input_filter in dem_cfg.get_input_filter():
+        input_filter.apply(als)
+        
+    # Apply freeboard conversion
+    if 'freeboard' in output_cfg.variable_attributes.keys():
+        # Apply offset correction
+        ocf = OffsetCorrectionFilter()
+        ocf.apply(als)
+        # Apply freeboard computation
+        ALSfreeboard = freeboard.AlsFreeboardConversion(cfg=dem_cfg.freeboard)
+        ALSfreeboard.freeboard_computation(als,dem_cfg=dem_cfg)
+        
+        #fig,ax = plt.subplots(1,1)
+        #ax.pcolormesh(als.get('elevation'),vmin=-3,vmax=3)
+
+    # Validate segment
+    # -> Do not try to grid a segment that has no valid elevations
+    if not als.has_valid_data:
+        msg = "... No valid data in {}:{}-{} -> skipping segment"
+        msg = msg.format(als_filepath.name, start_sec, stop_sec)
+        logger.warning(msg)
+    else:
+        # Grid the data and write the output in a netCDF file
+        gridding_workflow(als, dem_cfg, output_cfg)
+
+        
+def gridding_workflow(als, dem_cfg, output_cfg):
     """
     Single function gridding and plot creation that can be passed to a multiprocessing process
     :param als: (ALSData) ALS point cloud data
-    :param dem_cfg: (dict) DEM generation settings
-    :param export_dir: (str) the target directory for the gridded netcdfs
+    :param dem_cfg:
+    :param output_cfg:
     :return: None
     """
 
     # Grid the data
     logger.info("... Start gridding")
-    try:
-        dem = AlsDEM(als, cfg=dem_cfg)
-        dem.create()
-    except:
-        logger.error("Unhandled exception while gridding -> skip gridding")
-        print(sys.exc_info()[1])
-        return
+
+    dem = AlsDEM(als, cfg=dem_cfg)
+    dem.create()
+
+    # try:
+    #     dem = AlsDEM(als, cfg=dem_cfg)
+    #     dem.create()
+    # except:
+    #     logger.error("Unhandled exception while gridding -> skip gridding")
+    #     print(sys.exc_info()[1])
+    #     return
     logger.info("... done")
 
-    # Create the quickview plot and save as png
-    nc = AlsDEMNetCDF(dem, export_dir, project="mosaic", parameter="elevation")
+    # create
+    nc = AlsDEMNetCDF(dem, output_cfg)
     nc.export()
     logger.info("... exported to: %s" % nc.path)

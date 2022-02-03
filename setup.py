@@ -5,7 +5,7 @@ from setuptools import setup, find_packages
 import os
 
 # Get the readme
-with open('README.rst') as f:
+with open('README.md') as f:
     readme = f.read()
 
 # Get the licence
@@ -25,7 +25,7 @@ with open("requirements.txt") as f:
 setup(
     name='awi-als-toolbox',
     version=version,
-    description='python toolbox to parse and process airborne laserscanner (ALS) binary data files from the Alfred Wegener Institute (AWI) ',
+    description='python toolbox to parse and process airborne laser scanner (ALS) binary data files from the Alfred Wegener Institute (AWI) ',
     long_description=readme,
     author='Stefan Hendricks',
     author_email='stefan.hendricks@awi.de',

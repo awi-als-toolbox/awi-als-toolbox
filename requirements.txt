@@ -1,10 +1,13 @@
-git+https://github.com/matplotlib/basemap.git#egg=basemap
 cmocean
+construct
 loguru
 matplotlib
 netcdf4
 numpy
-loguru
+osgeo
 pyproj
 scipy
+tqdm
 xarray
+cached-property
+attrdict
