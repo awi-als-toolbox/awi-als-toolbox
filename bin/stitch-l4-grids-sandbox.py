@@ -2,7 +2,9 @@
 
 import os
 import glob
+import pyproj
 import xarray
+from netCDF4 import num2date, date2num
 
 import numpy as np
 
@@ -16,21 +18,44 @@ import matplotlib.ticker as ticker
 
 from matplotlib.colors import LightSource
 
+from awi_als_toolbox.grid import ALSGridCollection
+from gem2_seaice_toolbox.dataset import PSRefDataDSHIP
+
 
 def stitch_l4_grids_sandbox():
 
     # Lookup Directory for nc files
-    mcs_copy_dir = r"D:\mcs\workspace\teams\aircraft_operations\heli-ps\riegl-vq580-s9999057"
-    # flight_id = r"20191002_01_PS122-1_2-58_Heli-PS"
-    flight_id = r"20191020_01_PS122-1_2-167_Heli-PS"
-    l4_subdir = "level_l4_nc"
+    # mcs_copy_dir = r"D:\ASIRAS\MOSAIC_2019\product-als"
+    # # flight_id = r"20191002_01_PS122-1_2-58_Heli-PS"
+    # # flight_id = r"20191020_01_PS122-1_2-167_Heli-PS"
+    # flight_id = r"20191112_02_PS122-1_7-25_Heli-PS"
+    # l4_subdir = "level_l4_nc"
+    # netcdf_output_path = os.path.join(mcs_copy_dir, flight_id, l4_subdir, "%s_als_merged_grid-stere.nc" % flight_id)
+    # geotiff_output_path = os.path.join(mcs_copy_dir, flight_id, l4_subdir, "%s_als_merged_grid-stere.tiff" % flight_id)
+    #
+    # # Get a list of l4 files
+    # l4_files_lookup = os.path.join(mcs_copy_dir, flight_id, l4_subdir, "awi-mosaic-l4-elevation*.nc")
+    # l4_files_all = sorted(glob.glob(l4_files_lookup))
+    #
+    # l4_files_directory = r"D:\ASIRAS\MOSAIC_2019\product-dem\grid-merged-flights"
+    # netcdf_output_path = os.path.join(l4_files_directory, "20191112_als_merged_grid-stere.nc")
+    # geotiff_output_path = os.path.join(l4_files_directory, "20191112_als_merged_grid-stere.tiff")
+    # polarstern_ref_filepath = "polarstern-ref-20191112.dat"
 
-    # Get a list of l4 files
-    l4_files_lookup = os.path.join(mcs_copy_dir, flight_id, l4_subdir, "awi-mosaic-l4-elevation*.nc")
+    l4_files_directory = r"E:\ASIRAS\MOSAIC_2019\product-als\20200915_01_PS122-5_62-67_Heli-PS\level_l4_nc"
+    netcdf_output_path = os.path.join(l4_files_directory, "20200915_als_merged_grid-stere.nc")
+    geotiff_output_path = os.path.join(l4_files_directory, "20200915_als_merged_grid-stere.tiff")
+    polarstern_ref_filepath = "polarstern-ref-20200915.dat"
+    #polarstern_ref_filepath = "buoy_CO_20200616.dat"
+    #polarstern_ref_filepath = "flux_station.dat"
+
+
+    # Find files
+    l4_files_lookup = os.path.join(l4_files_directory, "awi-mosaic-l4-elevation*.nc")
     l4_files_all = sorted(glob.glob(l4_files_lookup))
 
     # Manually remove some files
-    ignore_list = [0, 1, 4]
+    ignore_list = []
     l4_files = []
     for i, l4_file in enumerate(l4_files_all):
         if i in ignore_list:
@@ -38,12 +63,27 @@ def stitch_l4_grids_sandbox():
         l4_files.append(l4_file)
     logger.info("Found %g l4 grid files" % len(l4_files))
 
-    # Read the files
-    l4_collect = ALSGridCollection(l4_files, res=0.5)
-    merged_l4 = l4_collect.get_merged_grid()
+    # Get the drift correction Element
+    ps = PSRefDataDSHIP(polarstern_ref_filepath)
+    # ps = PSRefDataDSHIP(L1_ref_filepath)
+    # ps = PSRefDataDSHIP(L2_ref_filepath)
+    # ps = PSRefDataDSHIP(L3_ref_filepath)
 
-    plot = ALSMergedGridMap(merged_l4)
-    plot.savefig("floe-alsgrid-20191020-map.png")
+    # Read the files
+    l4_collect = ALSGridCollection(l4_files, res=0.25)
+    #l4_collect = ALSGridCollection(l4_files, res=0.5)
+    l4_collect.add_drift_correction_reference(ps)
+    # l4_collect.set_maximum_dist2ref(2500.)
+    # l4_collect.set_maximum_dist2ref(500.)
+    # l4_collect.set_maximum_dist2ref(5500.)
+    l4_collect.set_maximum_dist2ref(50000.)
+
+    merged_l4 = l4_collect.get_merged_grid()
+    merged_l4.export_netcdf(netcdf_output_path)
+    merged_l4.export_geotiff(geotiff_output_path)
+
+    # plot = ALSMergedGridMap(merged_l4)
+    # plot.savefig("floe-alsgrid-20191020-map.png")
 
     # plt.figure()
     # ax = plt.gca()
@@ -59,154 +99,224 @@ def stitch_l4_grids_sandbox():
     # plt.show()
 
 
-class ALSGridCollection(object):
-
-    def __init__(self, filepaths, res=None, ignore_list=[]):
-        self.filepaths = filepaths
-        self.res = res
-        self.ignore_list = ignore_list
-        self.grids = []
-        self._read_grid_data()
-
-    def _read_grid_data(self):
-        for filepath in self.filepaths:
-            logger.info("Read: %s" % os.path.split(filepath)[-1])
-            grid_data = ALSL4Grid(filepath)
-            self.grids.append(grid_data)
-
-    def get_merged_grid(self):
-        x_min, x_max = self.xc_bounds
-        y_min, y_max = self.yc_bounds
-        merged_grid = ALSMergedGrid(x_min, x_max, y_min, y_max, self.res)
-        logger.info("Merge Grids:")
-        for i, grid in enumerate(self.grids):
-            if i in self.ignore_list:
-                continue
-            if (i+1) % 10 == 0:
-                logger.info("... %g / %g done" % (i+1, self.n_grids))
-            merged_grid.add_grid(grid)
-        logger.info("... %g / %g done" % (self.n_grids, self.n_grids))
-        return merged_grid
-
-    @property
-    def xc_bounds(self):
-        grid_min_bounds = [grid.xc_bounds[0] for grid in self.grids]
-        grid_max_bounds = [grid.xc_bounds[1] for grid in self.grids]
-        return [np.nanmin(grid_min_bounds), np.nanmax(grid_max_bounds)]
-
-    @property
-    def yc_bounds(self):
-        grid_min_bounds = [grid.yc_bounds[0] for grid in self.grids]
-        grid_max_bounds = [grid.yc_bounds[1] for grid in self.grids]
-        return [np.nanmin(grid_min_bounds), np.nanmax(grid_max_bounds)]
-
-    @property
-    def n_grids(self):
-        return len(self.grids)
-
-
-class ALSL4Grid(object):
-
-    def __init__(self, filepath):
-        self.filepath = filepath
-        self._read_file()
-
-    def _read_file(self):
-        self.nc = xarray.open_dataset(self.filepath)
-
-    @property
-    def grid_xc_yc(self):
-        xc, yc = self.nc.xc.values, self.nc.yc.values
-        return np.meshgrid(xc, yc)
-
-    @property
-    def xc_bounds(self):
-        xc = self.nc.xc.values
-        return [np.nanmin(xc), np.nanmax(xc)]
-
-    @property
-    def yc_bounds(self):
-        yc = self.nc.yc.values
-        return [np.nanmin(yc), np.nanmax(yc)]
-
-    @property
-    def xcenter(self):
-        return np.nanmean(self.xc_bounds)
-
-    @property
-    def ycenter(self):
-        return np.nanmean(self.yc_bounds)
-
-    @property
-    def proj_extent(self):
-        xc_bounds = self.xc_bounds
-        yc_bounds = self.yc_bounds
-        return [xc_bounds[0], yc_bounds[0], xc_bounds[1], yc_bounds[1]]
-
-    @property
-    def width(self):
-        bounds = self.xc_bounds
-        return bounds[1]-bounds[0]
-
-    @property
-    def height(self):
-        bounds = self.yc_bounds
-        return bounds[1]-bounds[0]
-
-    @property
-    def value(self):
-        return self.nc.elevation.values
-
-
-class ALSMergedGrid(object):
-
-    def __init__(self, x_min, x_max, y_min, y_max, res_m):
-        self.x_min = x_min
-        self.x_max = x_max
-        self.y_min = y_min
-        self.y_max = y_max
-        self.res = res_m
-
-        # Compute the shape of the full grid
-        self.xc = np.linspace(self.x_min, self.x_max, (self.x_max-self.x_min) / res_m)
-        self.yc = np.linspace(self.y_min, self.y_max, (self.y_max - self.y_min) / res_m)
-        self.xy = np.meshgrid(self.xc, self.yc)
-        self.dims = self.xy[0].shape
-        self.grid = np.full(self.dims, np.nan)
-
-    def add_grid(self, grid):
-
-        # Compute the offset indices between merged grid and grid subset
-        xi_offset = int((grid.xc_bounds[0]-self.xc_bounds[0])/self.res)
-        yj_offset = int((grid.yc_bounds[0]-self.yc_bounds[0])/self.res)
-
-        # Find finite values in the grid subset
-        subset_valid_indices = np.where(np.isfinite(grid.value))
-
-        subset_yj, subset_xi = subset_valid_indices[0].copy(), subset_valid_indices[1].copy()
-        subset_yj += yj_offset
-        subset_xi += xi_offset
-        merged_valid_indices = (subset_yj, subset_xi)
-
-        self.grid[merged_valid_indices] = grid.value[subset_valid_indices]-np.nanmean(grid.value)
-
-    @property
-    def xc_bounds(self):
-        return [np.nanmin(self.xc), np.nanmax(self.xc)]
-
-    @property
-    def yc_bounds(self):
-        return [np.nanmin(self.yc), np.nanmax(self.yc)]
-
-    @property
-    def width(self):
-        bounds = self.xc_bounds
-        return bounds[1]-bounds[0]
-
-    @property
-    def height(self):
-        bounds = self.yc_bounds
-        return bounds[1]-bounds[0]
+# class ALSGridCollection(object):
+#
+#     def __init__(self, filepaths, res=None, ignore_list=[]):
+#         self.filepaths = filepaths
+#         self.res = res
+#         self.ignore_list = ignore_list
+#         self.grids = []
+#         self._read_grid_data()
+#
+#     def add_drift_correction_reference(self, ref):
+#         """
+#         Add reference data to correct for ice drift
+#         :param ref: Any object with time (UTC datetime), longitude and latitude attributes
+#         :return:
+#         """
+#
+#         logger.info("Apply drift correction")
+#
+#         # Coverage test
+#         logger.info("Check temporal coverage of drift correction data")
+#         time_bounds = self.time_bounds
+#         in_range = np.logical_and(ref.time >= time_bounds[0], ref.time <= time_bounds[1])
+#         if len(np.where(in_range)[0]) < self.n_grids:
+#             raise ValueError("Not all grids in drift correction time range")
+#         logger.info("-> Test passed")
+#
+#         # Compute the displacement for each grid segment in range resolution (pixel) units
+#         # NOTE: This needs to be done in the projection of the grids
+#
+#         # Step 1: Get lon/lat positions of reference station for grid reference times
+#         times_num = date2num(self.times, "seconds since 1970-01-01")
+#         time_num_ref = date2num(ref.time, "seconds since 1970-01-01")
+#         ref_lons = np.interp(times_num, time_num_ref, ref.longitude)
+#         ref_lats = np.interp(times_num, time_num_ref, ref.latitude)
+#
+#         # Step 2: Convert reference station lon/lats to same grid
+#         p = pyproj.Proj("+proj=stere +lat_0=90 +lat_ts=70 +lon_0=135 +ellps=WGS84 +datum=WGS84")
+#         ref_x, ref_y = p(ref_lons, ref_lats)
+#
+#         # Step 3: Compute displacement in spatial resolution units
+#         resolution = self.grids[0].resolution
+#         ref_x_delta, ref_y_delta = ref_x - ref_x[0], ref_y - ref_y[0]
+#         grid_offset_x, grid_offset_y = ref_x_delta, ref_y_delta
+#         grid_offset_x = grid_offset_x.astype(int)
+#         grid_offset_y = grid_offset_y.astype(int)
+#
+#         # Step 4: Apply offset to grid
+#         for grid, offset_x, offset_y in zip(self.grids, grid_offset_x, grid_offset_y):
+#             grid.offset = [-1*offset_x, -1*offset_y]
+#
+#     def _read_grid_data(self):
+#         for filepath in self.filepaths:
+#             logger.info("Read: %s" % os.path.split(filepath)[-1])
+#             grid_data = ALSL4Grid(filepath)
+#             self.grids.append(grid_data)
+#
+#     def get_merged_grid(self):
+#         x_min, x_max = self.xc_bounds
+#         y_min, y_max = self.yc_bounds
+#         merged_grid = ALSMergedGrid(x_min, x_max, y_min, y_max, self.res)
+#         logger.info("Merge Grids:")
+#         for i, grid in enumerate(self.grids):
+#             if i in self.ignore_list:
+#                 continue
+#             if (i+1) % 10 == 0:
+#                 logger.info("... %g / %g done" % (i+1, self.n_grids))
+#             merged_grid.add_grid(grid)
+#         logger.info("... %g / %g done" % (self.n_grids, self.n_grids))
+#         return merged_grid
+#
+#     @property
+#     def xc_bounds(self):
+#         grid_min_bounds = [grid.xc_bounds[0] for grid in self.grids]
+#         grid_max_bounds = [grid.xc_bounds[1] for grid in self.grids]
+#         return [np.nanmin(grid_min_bounds), np.nanmax(grid_max_bounds)]
+#
+#     @property
+#     def yc_bounds(self):
+#         grid_min_bounds = [grid.yc_bounds[0] for grid in self.grids]
+#         grid_max_bounds = [grid.yc_bounds[1] for grid in self.grids]
+#         return [np.nanmin(grid_min_bounds), np.nanmax(grid_max_bounds)]
+#
+#     @property
+#     def times(self):
+#         return np.array([grid.reftime for grid in self.grids])
+#
+#     @property
+#     def time_bounds(self):
+#         times = self.times
+#         return [np.nanmin(times), np.nanmax(times)]
+#
+#     @property
+#     def n_grids(self):
+#         return len(self.grids)
+#
+#
+# class ALSL4Grid(object):
+#
+#     def __init__(self, filepath):
+#         self.filepath = filepath
+#         self.offset = [0.0, 0.0]
+#         self._read_file()
+#
+#     def _read_file(self):
+#         self.nc = xarray.open_dataset(self.filepath, decode_times=False)
+#
+#     @property
+#     def reftime(self):
+#         time_value = self.nc.time.values[0]
+#         units = self.nc.time.units
+#         return num2date(time_value, units)
+#
+#     @property
+#     def proj4str(self):
+#         proj_info = self.nc.Polar_Stereographic_Grid
+#         return proj_info.proj4_string
+#
+#     @property
+#     def resolution(self):
+#         return float(self.nc.attrs["geospatial_lat_resolution"])
+#
+#     @property
+#     def grid_xc_yc(self):
+#         xc, yc = self.nc.xc.values, self.nc.yc.values
+#         xc += self.offset[0]
+#         yc += self.offset[1]
+#         return np.meshgrid(xc, yc)
+#
+#     @property
+#     def xc_bounds(self):
+#         xc = self.nc.xc.values
+#         xc += self.offset[0]
+#         return [np.nanmin(xc), np.nanmax(xc)]
+#
+#     @property
+#     def yc_bounds(self):
+#         yc = self.nc.yc.values
+#         yc += self.offset[1]
+#         return [np.nanmin(yc), np.nanmax(yc)]
+#
+#     @property
+#     def xcenter(self):
+#         return np.nanmean(self.xc_bounds)
+#
+#     @property
+#     def ycenter(self):
+#         return np.nanmean(self.yc_bounds)
+#
+#     @property
+#     def proj_extent(self):
+#         xc_bounds = self.xc_bounds
+#         yc_bounds = self.yc_bounds
+#         return [xc_bounds[0], yc_bounds[0], xc_bounds[1], yc_bounds[1]]
+#
+#     @property
+#     def width(self):
+#         bounds = self.xc_bounds
+#         return bounds[1]-bounds[0]
+#
+#     @property
+#     def height(self):
+#         bounds = self.yc_bounds
+#         return bounds[1]-bounds[0]
+#
+#     @property
+#     def value(self):
+#         return self.nc.elevation.values
+#
+#
+# class ALSMergedGrid(object):
+#
+#     def __init__(self, x_min, x_max, y_min, y_max, res_m):
+#         self.x_min = x_min
+#         self.x_max = x_max
+#         self.y_min = y_min
+#         self.y_max = y_max
+#         self.res = res_m
+#
+#         # Compute the shape of the full grid
+#         self.xc = np.linspace(self.x_min, self.x_max, (self.x_max-self.x_min) / res_m)
+#         self.yc = np.linspace(self.y_min, self.y_max, (self.y_max - self.y_min) / res_m)
+#         self.xy = np.meshgrid(self.xc, self.yc)
+#         self.dims = self.xy[0].shape
+#         self.grid = np.full(self.dims, np.nan)
+#
+#     def add_grid(self, grid):
+#
+#         # Compute the offset indices between merged grid and grid subset
+#         xi_offset = int((grid.xc_bounds[0]-self.xc_bounds[0])/self.res)
+#         yj_offset = int((grid.yc_bounds[0]-self.yc_bounds[0])/self.res)
+#
+#         # Find finite values in the grid subset
+#         subset_valid_indices = np.where(np.isfinite(grid.value))
+#
+#         subset_yj, subset_xi = subset_valid_indices[0].copy(), subset_valid_indices[1].copy()
+#         subset_yj += yj_offset
+#         subset_xi += xi_offset
+#         merged_valid_indices = (subset_yj, subset_xi)
+#
+#         self.grid[merged_valid_indices] = grid.value[subset_valid_indices]-np.nanmean(grid.value)
+#
+#     @property
+#     def xc_bounds(self):
+#         return [np.nanmin(self.xc), np.nanmax(self.xc)]
+#
+#     @property
+#     def yc_bounds(self):
+#         return [np.nanmin(self.yc), np.nanmax(self.yc)]
+#
+#     @property
+#     def width(self):
+#         bounds = self.xc_bounds
+#         return bounds[1]-bounds[0]
+#
+#     @property
+#     def height(self):
+#         bounds = self.yc_bounds
+#         return bounds[1]-bounds[0]
 
 
 class ALSMergedGridMap(object):
@@ -233,7 +343,7 @@ class ALSMergedGridMap(object):
         # Basic setup of the figure
         self._init_figure()
 
-    def savefig(self, filename, dpi=300):
+    def savefig(self, filename, dpi=600):
         """
         Save the figure as png
         :param filename: (str) target filename (full filepath)
@@ -354,21 +464,23 @@ class ALSMergedGridMap(object):
         # for spine in spines:
         #     self.ax.spines[spine].set_color("1.0")
 
+        grid_color = "#4b4d4d"
+        grid_color = "0.9"
         for x_major_tick in np.arange(500, self.dem.width, 500):
             self.ax.plot([x_major_tick, x_major_tick], [0, self.dem.height],
-                         color="#4b4d4d", lw=0.5, zorder=200, alpha=0.75)
+                         color=grid_color, lw=0.25, zorder=200, alpha=0.5)
         for x_minor_tick in np.arange(100, self.dem.width, 100):
             self.ax.plot([x_minor_tick, x_minor_tick], [0, self.dem.height],
                          linestyle="--", dashes=(5, 5),
-                         color="#4b4d4d", lw=0.25, zorder=200, alpha=0.75)
+                         color=grid_color, lw=0.1, zorder=200, alpha=0.5)
 
         for y_major_tick in np.arange(500, self.dem.height, 500):
             self.ax.plot([0, self.dem.width], [y_major_tick, y_major_tick],
-                         color="#4b4d4d", lw=0.5, zorder=200, alpha=0.75)
+                         color=grid_color, lw=0.25, zorder=200, alpha=0.5)
         for y_minor_tick in np.arange(100, self.dem.height, 100):
             self.ax.plot([0, self.dem.width], [y_minor_tick, y_minor_tick],
                          linestyle="--", dashes=(5, 5),
-                         color="#4b4d4d", lw=0.25, zorder=200, alpha=0.75)
+                         color=grid_color, lw=0.1, zorder=200, alpha=0.5)
 
         # --- Axes Style ---
         major, minor = 500, 100

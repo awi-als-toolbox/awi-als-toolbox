@@ -103,5 +103,9 @@ venv.bak/
 # mypy
 .mypy_cache/
 *.png
+*.dat
+*.zip
+*.xml
+*.sys
 ALS_L1B*
 .idea/
