@@ -130,7 +130,10 @@ class AirborneLaserScannerFile(object):
                 bindat = f.read(nbytes)
 
                 # Parse the line bytes
-                line_data = self.line_parser.parse(bindat)
+                try:
+                    line_data = self.line_parser.parse(bindat)
+                except:
+                    breakpoint()
 
                 # Transfer parsed variables to data container
                 for shot_var_name in shot_vars.keys():
@@ -305,11 +308,10 @@ class AirborneLaserScannerFile(object):
         The data type is defined as the tupe (numpy data type, construct data type)
         :return: OrderedDict
         """
-        per_shot_variables = OrderedDict((('timestamp', (np.float64, Double)),
+        return OrderedDict((('timestamp', (np.float64, Double)),
                                           ('longitude', (np.float64, Double)),
                                           ('latitude', (np.float64, Double)),
                                           ('elevation', (np.float64, Double))))
-        return per_shot_variables
 
     @cached_property
     def per_line_variables(self):
@@ -350,6 +352,7 @@ class AirborneLaserScannerFileV2(AirborneLaserScannerFile):
         :param filepath: (str) The path of the AWI ALS file
         :param header_kwargs: Keywords for the header parsing class
         """
+        kwargs.update(dict(bytes_per_line_is_long=True))
         super(AirborneLaserScannerFileV2, self).__init__(*args, **kwargs)
 
     @cached_property
@@ -359,16 +362,19 @@ class AirborneLaserScannerFileV2(AirborneLaserScannerFile):
         The data type is defined as the tupe (numpy data type, construct data type)
         :return: OrderedDict
         """
-        per_shot_variables = OrderedDict((('timestamp', (np.float64, Double)),
-                                          ('latitude', (np.float64, Double)),
-                                          ('longitude', (np.float64, Double)),
-                                          ('elevation', (np.float64, Double)),
-                                          ('elevation_reference', (np.float64, Double)),
-                                          ('amplitude', (np.float32, Single)),
-                                          ('reflectance', (np.float32, Single)),
-                                          ('echo_width', (np.float32, Single)),
-                                          ('n_echoes', (np.byte, Byte))))
-        return per_shot_variables
+        return OrderedDict(
+            (
+                ('timestamp', (np.float64, Double)),
+                ('latitude', (np.float64, Double)),
+                ('longitude', (np.float64, Double)),
+                ('elevation', (np.float64, Double)),
+                ('elevation_reference', (np.float64, Double)),
+                ('amplitude', (np.float32, Single)),
+                ('reflectance', (np.float32, Single)),
+                ('echo_width', (np.float32, Single)),
+                ('n_echoes', (np.byte, Byte)),
+            )
+        )
 
     @cached_property
     def per_line_variables(self):
@@ -377,17 +383,20 @@ class AirborneLaserScannerFileV2(AirborneLaserScannerFile):
         The data type is defined as the tupe (numpy data type, construct data type)
         :return: OrderedDict
         """
-        per_line_variables = OrderedDict((('aircraft_latitude', (np.float64, Double)),
-                                          ('aircraft_longitude', (np.float64, Double)),
-                                          ('aircraft_altitude', (np.float32, Single)),
-                                          ('aircraft_pitch', (np.float32, Single)),
-                                          ('aircraft_roll', (np.float32, Single)),
-                                          ('aircraft_true_heading', (np.float32, Single)),
-                                          ('fov_min', (np.float32, Single)),
-                                          ('fov_max', (np.float32, Single)),
-                                          ('range_min', (np.float32, Single)),
-                                          ('range_max', (np.float32, Single))))
-        return per_line_variables
+        return OrderedDict(
+            (
+                ('aircraft_latitude', (np.float64, Double)),
+                ('aircraft_longitude', (np.float64, Double)),
+                ('aircraft_altitude', (np.float32, Single)),
+                ('aircraft_pitch', (np.float32, Single)),
+                ('aircraft_roll', (np.float32, Single)),
+                ('aircraft_true_heading', (np.float32, Single)),
+                ('fov_min', (np.float32, Single)),
+                ('fov_max', (np.float32, Single)),
+                ('range_min', (np.float32, Single)),
+                ('range_max', (np.float32, Single)),
+            )
+        )
 
 
 class ALSFileHeader(object):
@@ -396,28 +405,35 @@ class ALSFileHeader(object):
     Note: The header strucutre is constant for all binary file formats
     """
 
-    # Header information of the form (variable_name, [number of bytes, struct format])
-    header_dict = OrderedDict((('scan_lines', [4, '>L']),
-                               ('data_points_per_line', [2, '!H']),
-                               ('bytes_per_line', [2, '>H']),
-                               ('bytes_sec_line', [8, '>Q']),
-                               ('year', [2, '>H']),
-                               ('month', [1, '>b']),
-                               ('day', [1, '>b']),
-                               ('start_time_sec', [4, '>L']),
-                               ('stop_time_sec', [4, '>L']),
-                               ('device_name', [8, '>8s'])))
-
-    def __init__(self, filepath, device_name_override=None):
+    def __init__(self,
+                 filepath: str,
+                 device_name_override: str = None,
+                 bytes_per_line_is_long: bool = False):
         """
         Decode and store header information from binary AWI ALS files
-        :param filepath: (str) The path to the ALS file
-        :param device_name_override: (str, default: None) The name of the sensor. May be not correct in the source
-        files for newer versions
+        :param filepath: The path to the ALS file
+        :param device_name_override: The name of the sensor. May be not correct in the source
+            files for newer versions
+        :param bytes_per_line_is_long: A flag indicating the data type of the `bytes_per_line`
+            header variable (false: 16bit unsigned integer, true: 32bit unsigned integer).
+
         """
 
         self.device_name_override = device_name_override
         self._header_info_dict = {}
+
+        # Header information of the form (variable_name, [number of bytes, struct format])
+        bytes_per_line = [2, '>H'] if not bytes_per_line_is_long else [4, '>L']
+        self.header_dict = OrderedDict((('scan_lines', [4, '>L']),
+                                       ('data_points_per_line', [2, '!H']),
+                                       ('bytes_per_line', bytes_per_line),
+                                       ('bytes_sec_line', [8, '>Q']),
+                                       ('year', [2, '>H']),
+                                       ('month', [1, '>b']),
+                                       ('day', [1, '>b']),
+                                       ('start_time_sec', [4, '>L']),
+                                       ('stop_time_sec', [4, '>L']),
+                                       ('device_name', [8, '>8s'])))
         self._parse_header(filepath)
 
         # This is legacy code
