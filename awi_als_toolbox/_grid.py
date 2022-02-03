@@ -726,7 +726,7 @@ class ALSGridCollection(object):
                     tie_point_times = np.array(df['timestamp'])
                 else:
                     tie_point_times = None
-                logger.info("Offest correction term is computed for variable: %s" ivar)
+                logger.info("Offest correction term is computed for variable: %s" %ivar)
                 cfg.offset_correction['compute_cor_func']['export_dir'] = merged_grid.export_dir
                 merged_grid.correction[ivar].compute_cor_func(**cfg.offset_correction['compute_cor_func'])
                 #merged_grid.correction[ivar].compute_cor_func(tie_point_times=[None,'stored'][use_low_reflectance_tiepoints],

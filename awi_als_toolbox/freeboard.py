@@ -183,6 +183,32 @@ class DetectOpenWater(ALSPointCloudFilter):
         :param als:
         :return:
         """
+        
+        # Check if data is available: output_gen_l_site_13481047.txt /isibhv/projects/p_mosaic_als/gdr/20190928_01_PS122-1_2-45_Heli-PS/
+        # output_gen_l_site_13481049.txt /isibhv/projects/p_mosaic_als/gdr/20191112_01_PS122-1_7-24_Heli-PS/
+        # output_gen_l_site_13481081.txt /isibhv/projects/p_mosaic_als/gdr/20190928_01_PS122-1_2-45_Heli-PS/
+        #    iglobmin = np.where(elev_nadir==globmin)[0][0]#np.where(elev_nadir_m==globmin)[0][0]
+        #    IndexError: index 0 is out of bounds for axis 0 with size 0
+        
+        # Indexing error: output_gen_l_site_13481051.txt /isibhv/projects/p_mosaic_als/gdr/20191230_01_PS122-2_18-7_Heli-PS/
+        # output_gen_l_site_13481052.txt /isibhv/projects/p_mosaic_als/gdr/20200107_02_PS122-2_19-45_Heli-PS
+        # output_gen_l_site_13481055.txt /isibhv/projects/p_mosaic_als/gdr/20200125_01_PS122-2_21-122_Heli-PS/
+        # output_gen_l_site_13481058.txt /isibhv/projects/p_mosaic_als/gdr/20200217_01_PS122-2_25-7_Heli-PS/
+        # output_gen_l_site_13481059.txt /isibhv/projects/p_mosaic_als/gdr/20200321_02_PS122-3_32-71_Heli-PS/
+        # output_gen_l_site_13481072.txt /isibhv/projects/p_mosaic_als/gdr/20200908_02_PS122-5_61-63_Heli-PS/
+        # output_gen_l_site_13481075.txt /isibhv/projects/p_mosaic_als/gdr/20200919_01_PS122-5_62-166_Heli-PS/
+        # output_gen_l_site_13481076.txt /isibhv/projects/p_mosaic_als/gdr/20200921_01_PS122-5_63-3_Heli-PS/
+        #        elev_nadir = als.get('elevation')[nadir_inds]
+        #        IndexError: index 1081 is out of bounds for axis 1 with size 1081
+        
+        # Index error:   output_gen_l_site_13481068.txt /isibhv/projects/p_mosaic_als/gdr/20200806_01_PS122-4_50-32_Heli-PS/
+        # output_gen_l_site_13481069.txt /isibhv/projects/p_mosaic_als/gdr/20200807_01_PS122-4_50-45_Heli-PS/
+        # output_gen_l_site_13481070.txt /isibhv/projects/p_mosaic_als/gdr/20200818_02_PS122-5_59-139_Heli-PS/
+        #            ind_peak = np.where(np.all([diff[1:]<0,diff[:-1]>0],axis=0))[0][0]
+        #            IndexError: index 0 is out of bounds for axis 0 with size 0
+        #
+        # -----> Error in atmospheric backscatter
+        
 
         logger.info("OpenWaterDetection is applied")
         
@@ -192,6 +218,9 @@ class DetectOpenWater(ALSPointCloudFilter):
         mask_roll = np.where(np.isfinite(als.get('aircraft_roll')))
         # Indexes of all NADIR pixels
         nadir_inds = (mask_roll[0],(np.ones(mask_roll[0].size)*als.n_shots/2+als.get('aircraft_roll')[mask_roll]/self.cfg["fov_resolution"]).astype('int'))
+        # Check for correct indexes, i.e. if for this roll there exists an nadir pixel
+        mask_ex_nadir = np.all([nadir_inds[1]>=0,nadir_inds[1]<als.n_shots],axis=0)
+        nadir_inds = (nadir_inds[0][mask_ex_nadir], nadir_inds[1][mask_ex_nadir])
         # Subset NADIR elevation and reflectance data
         elev_nadir = als.get('elevation')[nadir_inds]
         rflc_nadir = als.get('reflectance')[nadir_inds]
@@ -212,133 +241,140 @@ class DetectOpenWater(ALSPointCloudFilter):
         
         
         # 3. Detect global elevation minimum
-        globmin = np.nanmin(elev_nadir)#np.nanmin(elev_nadir_m)
-        iglobmin = np.where(elev_nadir==globmin)[0][0]#np.where(elev_nadir_m==globmin)[0][0]
-        
-        
-        # 4. Collect list of potential open water points
-        elev_tol = self.cfg["elev_tol"]
-        elev_grad = self.cfg["elev_segment"]/als.n_lines
-        owp = np.arange(elev_nadir.size)[np.abs(elev_nadir-globmin)<=np.abs(np.arange(elev_nadir.size)-iglobmin)*elev_grad+2*elev_tol]
-        #print('elevation open water',owp.size)
-        
-        # Start plot if activated
-        if do_plot:
-            fig,ax = plt.subplots(2,2,sharex=True, figsize=(10,6),
-                                  gridspec_kw={'height_ratios':[1.5,1]})
-            
-            for i,iax in enumerate(ax.flatten()):
-                iax.annotate(['a)','b)','c)','d)'][i], xy=(-0.15, 1.0), xycoords="axes fraction",verticalalignment='center')
-
-            pcm=ax[0,0].pcolormesh(als.get('elevation').T)
-            ax[0,0].plot(nadir_inds[0],nadir_inds[1],'k--')
-            plt.colorbar(pcm,ax=ax[0,0],location='bottom',label='Elevation in m')
-            ax[0,0].set_yticks([])
-    
-            pcm=ax[0,1].pcolormesh(als.get('reflectance').T,cmap=plt.get_cmap('magma'))
-            ax[0,1].plot(nadir_inds[0],nadir_inds[1],'k--')
-            plt.colorbar(pcm,ax=ax[0,1],location='bottom',label='Reflectance in dB')
-            ax[0,1].set_yticks([])
-            
-            time_nadir = als.get('timestamp')[:,int(als.get('timestamp').shape[1]/2)]
-
-            ax[1,0].fill_between(np.arange(als.n_lines)[mask_roll],
-                                 (np.abs(np.arange(elev_nadir.size)-iglobmin)*elev_grad+globmin+2*elev_tol),
-                                 (np.abs(np.arange(elev_nadir.size)-iglobmin)*-(elev_grad)+globmin-2*elev_tol),color='0.9')
-            ax[1,0].plot(np.arange(als.n_lines)[mask_roll],
-                         (np.abs(np.arange(elev_nadir.size)-iglobmin)*elev_grad+globmin+2*elev_tol),'--',color='0.7')
-            ax[1,0].plot(np.arange(als.n_lines)[mask_roll],
-                         (np.abs(np.arange(elev_nadir.size)-iglobmin)*-(elev_grad)+globmin-2*elev_tol),'--',color='0.7')
-            ax[1,0].plot(np.arange(als.n_lines)[mask_roll],elev_nadir,'0.4')
-            ax[1,0].set_ylabel('Elevation in m')
-            try:
-                ax[1,0].set_xlabel('Time in s')
-                ax[1,0].set_xticks(np.linspace(0,als.n_lines-1,7,dtype='int'))
-                ax[1,0].set_xticklabels(['%i' %np.round(time_nadir[int(indt)]-time_nadir[0]) for indt in ax[1,0].get_xticks()])
-            except:
-                ax[1,0].set_xlabel('Line No.')
-            
-            ax[1,1].plot(np.arange(als.n_lines)[mask_roll],
-                         np.ones(elev_nadir.size)*self.cfg["rflc_thres"]+np.nanmean(rflc_nadir_m),'--',color='0.7')
-            ax[1,1].plot(np.arange(als.n_lines)[mask_roll],
-                         -np.ones(elev_nadir.size)*self.cfg["rflc_thres"]+np.nanmean(rflc_nadir_m),'--',color='0.7')
-            ax[1,1].plot(np.arange(als.n_lines)[mask_roll], rflc_nadir,'0.4')
-            ax[1,1].set_ylabel('Reflectance in dB')
-            try:
-                ax[1,1].set_xlabel('Time in s')
-                ax[1,1].set_xticklabels(['%i' %np.round(time_nadir[int(indt)]-time_nadir[0]) for indt in ax[1,1].get_xticks()])
-            except:
-                ax[1,1].set_xlabel('Line No.')
-        
-        
-        # 5. Check reflectance of potential points
-        rflc_thres = self.cfg["rflc_thres"]
-        rflc_owp = rflc_nadir[owp]
-        if self.cfg["rflc_minmax"]:
-            logger.info(" - using also maxima of reflectance for open water detection")
-            mask = np.abs(rflc_owp - np.nanmean(rflc_nadir_m))> rflc_thres
+        if elev_nadir.size>0:
+            globmin = np.nanmin(elev_nadir)#np.nanmin(elev_nadir_m)
         else:
-            mask = np.nanmean(rflc_nadir_m) - rflc_owp > rflc_thres
-        
-        owp = owp[mask]
-        rflc_owp = rflc_owp[mask]
-        
-        
-        # 5. Cluster open water points
-        # - Find distant clusters
-        cluster_size=self.cfg["cluster_size"]
-        cluster_breaks = np.where(np.diff(owp)>cluster_size)[0]
-        cluster_breaks = np.append(cluster_breaks, owp.size)
-        
-        # - extract mean information of the clusters
-        ind_start = 0
-        cluster_info = []
-        
-        rflc_mean = np.nanmean(als.get('reflectance'))
-        
-        # Check if projection is available
-        self.proj_avail = hasattr(als,'x') and hasattr(als,'y')
-        
-        for i in cluster_breaks:
-            if ind_start!=i:
-                inds_cluster = (nadir_inds[0][owp][ind_start:i],nadir_inds[1][owp][ind_start:i])
-                if self.proj_avail:
-                    x,y = als.x[inds_cluster],als.y[inds_cluster]
-                else:
-                    x,y = np.zeros(als.get('longitude').shape)*np.nan, np.zeros(als.get('longitude').shape)*np.nan
-                
-                cluster_info.append((np.nanmean(als.get('timestamp')[inds_cluster]),
-                                     np.nanmean(als.get('longitude')[inds_cluster]),
-                                     np.nanmean(als.get('latitude')[inds_cluster]),
-                                     np.nanmean(x),
-                                     np.nanmean(y),
-                                     np.nanmean(als.get('elevation')[inds_cluster]),
-                                     np.nanmean(als.get('reflectance')[inds_cluster]),
-                                     np.nanmean(als.get('reflectance')[inds_cluster])-rflc_mean))
-                
-            ind_start = i + 1
-            
-        logger.info('Number of open water points: %i and clusters: %i' %(owp.size,len(cluster_info)))
-        
-        # 6. (optional) plot results of open water detection
-        if do_plot:
-            ind_start = 0 
+            globmin = np.nan
+        if np.any(elev_nadir==globmin):
+            iglobmin = np.where(elev_nadir==globmin)[0][0]#np.where(elev_nadir_m==globmin)[0][0]
+
+
+            # 4. Collect list of potential open water points
+            elev_tol = self.cfg["elev_tol"]
+            elev_grad = self.cfg["elev_segment"]/als.n_lines
+            owp = np.arange(elev_nadir.size)[np.abs(elev_nadir-globmin)<=np.abs(np.arange(elev_nadir.size)-iglobmin)*elev_grad+2*elev_tol]
+            #print('elevation open water',owp.size)
+
+            # Start plot if activated
+            if do_plot:
+                fig,ax = plt.subplots(2,2,sharex=True, figsize=(10,6),
+                                      gridspec_kw={'height_ratios':[1.5,1]})
+
+                for i,iax in enumerate(ax.flatten()):
+                    iax.annotate(['a)','b)','c)','d)'][i], xy=(-0.15, 1.0), xycoords="axes fraction",verticalalignment='center')
+
+                pcm=ax[0,0].pcolormesh(als.get('elevation').T)
+                ax[0,0].plot(nadir_inds[0],nadir_inds[1],'k--')
+                plt.colorbar(pcm,ax=ax[0,0],location='bottom',label='Elevation in m')
+                ax[0,0].set_yticks([])
+
+                pcm=ax[0,1].pcolormesh(als.get('reflectance').T,cmap=plt.get_cmap('magma'))
+                ax[0,1].plot(nadir_inds[0],nadir_inds[1],'k--')
+                plt.colorbar(pcm,ax=ax[0,1],location='bottom',label='Reflectance in dB')
+                ax[0,1].set_yticks([])
+
+                time_nadir = als.get('timestamp')[:,int(als.get('timestamp').shape[1]/2)]
+
+                ax[1,0].fill_between(np.arange(als.n_lines)[mask_roll][mask_ex_nadir],
+                                     (np.abs(np.arange(elev_nadir.size)-iglobmin)*elev_grad+globmin+2*elev_tol),
+                                     (np.abs(np.arange(elev_nadir.size)-iglobmin)*-(elev_grad)+globmin-2*elev_tol),color='0.9')
+                ax[1,0].plot(np.arange(als.n_lines)[mask_roll][mask_ex_nadir],
+                             (np.abs(np.arange(elev_nadir.size)-iglobmin)*elev_grad+globmin+2*elev_tol),'--',color='0.7')
+                ax[1,0].plot(np.arange(als.n_lines)[mask_roll][mask_ex_nadir],
+                             (np.abs(np.arange(elev_nadir.size)-iglobmin)*-(elev_grad)+globmin-2*elev_tol),'--',color='0.7')
+                ax[1,0].plot(np.arange(als.n_lines)[mask_roll][mask_ex_nadir],elev_nadir,'0.4')
+                ax[1,0].set_ylabel('Elevation in m')
+                try:
+                    ax[1,0].set_xlabel('Time in s')
+                    ax[1,0].set_xticks(np.linspace(0,als.n_lines-1,7,dtype='int'))
+                    ax[1,0].set_xticklabels(['%i' %np.round(time_nadir[int(indt)]-time_nadir[0]) for indt in ax[1,0].get_xticks()])
+                except:
+                    ax[1,0].set_xlabel('Line No.')
+
+                ax[1,1].plot(np.arange(als.n_lines)[mask_roll][mask_ex_nadir],
+                             np.ones(elev_nadir.size)*self.cfg["rflc_thres"]+np.nanmean(rflc_nadir_m),'--',color='0.7')
+                ax[1,1].plot(np.arange(als.n_lines)[mask_roll][mask_ex_nadir],
+                             -np.ones(elev_nadir.size)*self.cfg["rflc_thres"]+np.nanmean(rflc_nadir_m),'--',color='0.7')
+                ax[1,1].plot(np.arange(als.n_lines)[mask_roll][mask_ex_nadir], rflc_nadir,'0.4')
+                ax[1,1].set_ylabel('Reflectance in dB')
+                try:
+                    ax[1,1].set_xlabel('Time in s')
+                    ax[1,1].set_xticklabels(['%i' %np.round(time_nadir[int(indt)]-time_nadir[0]) for indt in ax[1,1].get_xticks()])
+                except:
+                    ax[1,1].set_xlabel('Line No.')
+
+
+            # 5. Check reflectance of potential points
+            rflc_thres = self.cfg["rflc_thres"]
+            rflc_owp = rflc_nadir[owp]
+            if self.cfg["rflc_minmax"]:
+                logger.info(" - using also maxima of reflectance for open water detection")
+                mask = np.abs(rflc_owp - np.nanmean(rflc_nadir_m))> rflc_thres
+            else:
+                mask = np.nanmean(rflc_nadir_m) - rflc_owp > rflc_thres
+
+            owp = owp[mask]
+            rflc_owp = rflc_owp[mask]
+
+
+            # 5. Cluster open water points
+            # - Find distant clusters
+            cluster_size=self.cfg["cluster_size"]
+            cluster_breaks = np.where(np.diff(owp)>cluster_size)[0]
+            cluster_breaks = np.append(cluster_breaks, owp.size)
+
+            # - extract mean information of the clusters
+            ind_start = 0
+            cluster_info = []
+
+            rflc_mean = np.nanmean(als.get('reflectance'))
+
+            # Check if projection is available
+            self.proj_avail = hasattr(als,'x') and hasattr(als,'y')
+
             for i in cluster_breaks:
-                ax[0,0].scatter(nadir_inds[0][owp[ind_start:i]],nadir_inds[1][owp[ind_start:i]],c='0.85',edgecolors='0.4',zorder=10)
-                ax[0,1].scatter(nadir_inds[0][owp[ind_start:i]],nadir_inds[1][owp[ind_start:i]],c='0.85',edgecolors='0.4',zorder=10)
-                ax[1,0].plot(np.arange(als.n_lines)[mask_roll][owp[ind_start:i]], elev_nadir[owp[ind_start:i]], ".")
-                ax[1,1].plot(np.arange(als.n_lines)[mask_roll][owp[ind_start:i]], rflc_nadir[owp[ind_start:i]], ".")
+                if ind_start!=i:
+                    inds_cluster = (nadir_inds[0][owp][ind_start:i],nadir_inds[1][owp][ind_start:i])
+                    if self.proj_avail:
+                        x,y = als.x[inds_cluster],als.y[inds_cluster]
+                    else:
+                        x,y = np.zeros(als.get('longitude').shape)*np.nan, np.zeros(als.get('longitude').shape)*np.nan
+
+                    cluster_info.append((np.nanmean(als.get('timestamp')[inds_cluster]),
+                                         np.nanmean(als.get('longitude')[inds_cluster]),
+                                         np.nanmean(als.get('latitude')[inds_cluster]),
+                                         np.nanmean(x),
+                                         np.nanmean(y),
+                                         np.nanmean(als.get('elevation')[inds_cluster]),
+                                         np.nanmean(als.get('reflectance')[inds_cluster]),
+                                         np.nanmean(als.get('reflectance')[inds_cluster])-rflc_mean))
+
                 ind_start = i + 1
+
+            logger.info('Number of open water points: %i and clusters: %i' %(owp.size,len(cluster_info)))
+
+            # 6. (optional) plot results of open water detection
+            if do_plot:
+                ind_start = 0 
+                for i in cluster_breaks:
+                    ax[0,0].scatter(nadir_inds[0][owp[ind_start:i]],nadir_inds[1][owp[ind_start:i]],c='0.85',edgecolors='0.4',zorder=10)
+                    ax[0,1].scatter(nadir_inds[0][owp[ind_start:i]],nadir_inds[1][owp[ind_start:i]],c='0.85',edgecolors='0.4',zorder=10)
+                    ax[1,0].plot(np.arange(als.n_lines)[mask_roll][mask_ex_nadir][owp[ind_start:i]], elev_nadir[owp[ind_start:i]], ".")
+                    ax[1,1].plot(np.arange(als.n_lines)[mask_roll][mask_ex_nadir][owp[ind_start:i]], rflc_nadir[owp[ind_start:i]], ".")
+                    ind_start = i + 1
+
+                if savefig:
+                    fig.savefig(Path(self.cfg["export_file"]).absolute().parent.joinpath(als.tcs_segment_datetime.strftime('Open_water_detection_%Y%m%dT%H%M%S.jpg')), 
+                                dpi=300)
+                    logger.info('Stored open water detection image to %s' %Path(self.cfg["export_file"]).absolute().parent.joinpath('Open_water_detection_%s.jpg' %als.tcs_segment_datetime))
+
+
+            # 7. Export open water points
+            #self._export_open_water_points((nadir_inds[0][peaks_glob],nadir_inds[1][peaks_glob]),als)
+            self._export_open_water_clusters(cluster_info,als)
             
-            if savefig:
-                fig.savefig(Path(self.cfg["export_file"]).absolute().parent.joinpath(als.tcs_segment_datetime.strftime('Open_water_detection_%Y%m%dT%H%M%S.jpg')), 
-                            dpi=300)
-                logger.info('Stored open water detection image to %s' %Path(self.cfg["export_file"]).absolute().parent.joinpath('Open_water_detection_%s.jpg' %als.tcs_segment_datetime))
-         
-        
-        # 7. Export open water points
-        #self._export_open_water_points((nadir_inds[0][peaks_glob],nadir_inds[1][peaks_glob]),als)
-        self._export_open_water_clusters(cluster_info,als)
+        else:
+            logger.info('Warning: all nadir elevations in this segment are NaN')
 
     
     def _export_open_water_points(self, inds_peak, als):

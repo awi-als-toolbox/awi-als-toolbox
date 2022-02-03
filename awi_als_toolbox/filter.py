@@ -55,8 +55,11 @@ class AtmosphericBackscatterFilter(ALSPointCloudFilter):
         # Determine elevation of first mode
         hist,bins = np.histogram(elevations[np.isfinite(elevations)],bins=100)
         diff = np.diff(np.append(np.zeros((1,)),hist))
-        ind_peak = np.where(np.all([diff[1:]<0,diff[:-1]>0],axis=0))[0][0]
-        min_mode_elev = np.mean(bins[ind_peak:ind_peak+2])
+        if np.any(np.all([diff[1:]<0,diff[:-1]>0],axis=0)):
+            ind_peak = np.where(np.all([diff[1:]<0,diff[:-1]>0],axis=0))[0][0]
+            min_mode_elev = np.mean(bins[ind_peak:ind_peak+2])
+        else:
+            min_mode_elev = np.nanmean(elevations)
         threshold = 20
         # Mask points outside the interval
         mask = np.where(np.any([elevations>min_mode_elev+threshold,
