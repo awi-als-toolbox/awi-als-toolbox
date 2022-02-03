@@ -125,8 +125,8 @@ class AirborneLaserScannerFile(object):
 
             #for i in tqdm.tqdm(np.arange(n_selected_lines), desc="Parse lines"):
             for i in np.arange(n_selected_lines):
-                if i%(n_selected_lines/10)==0:
-                    logger.info('Parse lines: %i%%' %i/(n_selected_lines)*100)
+                if i%int(n_selected_lines/10)==0:
+                    logger.info('Parse lines: %i%%' %np.ceil(i/(n_selected_lines)*100))
 
                 # Position to the start byte of the current line
                 f.seek(startbyte)
