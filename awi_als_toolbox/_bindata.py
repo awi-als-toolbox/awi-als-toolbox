@@ -123,7 +123,10 @@ class AirborneLaserScannerFile(object):
         #       reader is always positioned at the start byte of a particular line
         with open(self.filepath, 'rb') as f:
 
-            for i in tqdm.tqdm(np.arange(n_selected_lines), desc="Parse lines"):
+            #for i in tqdm.tqdm(np.arange(n_selected_lines), desc="Parse lines"):
+            for i in np.arange(n_selected_lines):
+                if i%(n_selected_lines/10)==0:
+                    logger.info('Parse lines: %i%%' %i/(n_selected_lines)*100)
 
                 # Position to the start byte of the current line
                 f.seek(startbyte)
@@ -143,6 +146,8 @@ class AirborneLaserScannerFile(object):
 
                 # Go to next line
                 startbyte = np.uint64(startbyte + nbytes)
+                
+            logger.info('Parse lines: 100% and finished')
 
         # Convert timestamp (seconds since start of the UTC day -> seconds since 1970-01-01)
         shot_vars["timestamp"] = self.timestamp2time(shot_vars["timestamp"])
