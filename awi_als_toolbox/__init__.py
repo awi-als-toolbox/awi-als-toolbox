@@ -17,6 +17,7 @@ from pathlib import Path
 
 from ._bindata import (AirborneLaserScannerFile, AirborneLaserScannerFileV2, ALSPointCloudData)
 from ._grid import (AlsDEM, AlsDEMCfg, ALSL4Grid, ALSMergedGrid, ALSGridCollection)
+from ._utils import (get_yaml_cfg)
 
 import warnings
 warnings.filterwarnings("ignore")

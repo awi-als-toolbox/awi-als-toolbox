@@ -9,6 +9,8 @@ import sys
 import multiprocessing
 from pathlib import Path
 
+import matplotlib.pylab as plt
+
 # This matplotlib setting is necessary if the script
 # is run in a shell via ssh and no window manager
 # import matplotlib
@@ -18,6 +20,9 @@ from loguru import logger
 
 from . import AirborneLaserScannerFile, AirborneLaserScannerFileV2, AlsDEM
 from .export import AlsDEMNetCDF
+import awi_als_toolbox.freeboard as freeboard
+from awi_als_toolbox.filter import OffsetCorrectionFilter
+
 
 
 def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1, use_multiprocessing=False,
@@ -78,6 +83,43 @@ def als_l1b2dem(als_filepath, dem_cfg, output_cfg, file_version=1, use_multiproc
         process_pool.close()
         process_pool.join()
 
+    
+def get_als_segments(als_filepaths, dem_cfg, file_version=1):
+    """
+    Function to return segements of all binary ALS point cloud files provided
+    :param als_filepaths: list of full filepaths of all binary ALS point could files
+    :param dem_cfg: (awi_als_toolbox.demgen.AlsDEMCfg)
+    "param file_version:
+    :return:"
+    """
+    output = {'als_filepath': [],
+              'start_sec': [],
+              'stop_sec': [],
+              'i': [],
+              'n_segments': []}
+    
+    for ifile in als_filepaths:
+        als_filepath = Path(ifile)
+        alsfile = get_als_file(als_filepath, file_version, dem_cfg)
+
+        # --- Step 3: loop over the defined segments ---
+        # Get a segment list based on the suggested segment lengths for the gridding preset
+        # TODO: Evaluate the use of multi-processing for the individual segments.
+        segments = alsfile.get_segment_list(dem_cfg.segment_len_secs)
+        n_segments = len(segments)
+        logger.info("Split file in %d segments" % n_segments)
+
+        for i, (start_sec, stop_sec) in enumerate(segments):
+            output['als_filepath'].append(als_filepath)
+            output['start_sec'].append(start_sec)
+            output['stop_sec'].append(stop_sec)
+            output['i'].append(i)
+            output['n_segments'].append(n_segments)
+    
+    logger.info("Overall number of segments: %i" %len(output['i']))
+    
+    return output
+    
         
 def get_als_file(als_filepath, file_version, dem_cfg):
     """
@@ -143,6 +185,18 @@ def read_grid_wrapper(als_filepath, dem_cfg, output_cfg, file_version, start_sec
     # Apply any filter defined
     for input_filter in dem_cfg.get_input_filter():
         input_filter.apply(als)
+        
+    # Apply freeboard conversion
+    if 'freeboard' in output_cfg.variable_attributes.keys():
+        # Apply offset correction
+        ocf = OffsetCorrectionFilter()
+        ocf.apply(als)
+        # Apply freeboard computation
+        ALSfreeboard = freeboard.AlsFreeboardConversion(cfg=dem_cfg.freeboard)
+        ALSfreeboard.freeboard_computation(als,dem_cfg=dem_cfg)
+        
+        #fig,ax = plt.subplots(1,1)
+        #ax.pcolormesh(als.get('elevation'),vmin=-3,vmax=3)
 
     # Validate segment
     # -> Do not try to grid a segment that has no valid elevations

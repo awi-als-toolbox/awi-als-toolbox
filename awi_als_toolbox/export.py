@@ -18,7 +18,7 @@ class AlsDEMNetCDFCfg(object):
     Container for the netCDF output structure
     """
 
-    def __init__(self, filenaming, global_attributes, variable_attributes, export_dir=None):
+    def __init__(self, filenaming, global_attributes, variable_attributes, export_dir=None, offset_correction=None):
         """
 
         :param filenaming:
@@ -29,6 +29,7 @@ class AlsDEMNetCDFCfg(object):
         self.global_attributes = global_attributes
         self.variable_attributes = variable_attributes
         self.export_dir = export_dir
+        self.offset_correction = offset_correction
 
     @classmethod
     def from_cfg(cls, yaml_filepath, **kwargs):
@@ -106,7 +107,8 @@ class AlsDEMNetCDF(object):
         # Add grid mapping
         grid_mapping_name, grid_mapping_attrs = self.dem.grid_mapping_items
         if grid_mapping_name is not None:
-            data_vars[grid_mapping_name] = xr.Variable("grid_mapping", [0], attrs=grid_mapping_attrs)
+            #data_vars[grid_mapping_name] = xr.Variable("grid_mapping", [0], attrs=grid_mapping_attrs)
+            data_vars['projection'] = xr.Variable("grid_mapping", [0], attrs=grid_mapping_attrs)
 
         # Get the dimension variables
         coords = {"time": xr.Variable("time", [self.dem.ref_time], attrs=self.cfg.get_var_attrs("time")),

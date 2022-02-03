@@ -123,7 +123,10 @@ class AirborneLaserScannerFile(object):
         #       reader is always positioned at the start byte of a particular line
         with open(self.filepath, 'rb') as f:
 
-            for i in tqdm.tqdm(np.arange(n_selected_lines), desc="Parse lines"):
+            #for i in tqdm.tqdm(np.arange(n_selected_lines), desc="Parse lines"):
+            for i in np.arange(n_selected_lines):
+                if i%int(n_selected_lines/10)==0:
+                    logger.info('Parse lines: %i%%' %np.ceil(i/(n_selected_lines)*100))
 
                 # Position to the start byte of the current line
                 f.seek(startbyte)
@@ -143,6 +146,8 @@ class AirborneLaserScannerFile(object):
 
                 # Go to next line
                 startbyte = np.uint64(startbyte + nbytes)
+                
+            logger.info('Parse lines: 100% and finished')
 
         # Convert timestamp (seconds since start of the UTC day -> seconds since 1970-01-01)
         shot_vars["timestamp"] = self.timestamp2time(shot_vars["timestamp"])
@@ -362,6 +367,7 @@ class AirborneLaserScannerFileV2(AirborneLaserScannerFile):
         The data type is defined as the tupe (numpy data type, construct data type)
         :return: OrderedDict
         """
+
         return OrderedDict(
             (
                 ('timestamp', (np.float64, Double)),
@@ -375,6 +381,7 @@ class AirborneLaserScannerFileV2(AirborneLaserScannerFile):
                 ('n_echoes', (np.byte, Byte)),
             )
         )
+
 
     @cached_property
     def per_line_variables(self):
@@ -549,6 +556,9 @@ class ALSPointCloudData(object):
         # save data arrays
         self._shot_vars = shot_vars
         self._line_vars = line_vars
+        
+        # add new weights field
+        self.set_weights()
 
         # Update the metadata now with the data in place
         self._set_metadata()
@@ -558,6 +568,7 @@ class ALSPointCloudData(object):
         self.y = np.empty(self.get("longitude").shape)*np.NaN
         self.IceDriftCorrected   = False
         self.IceCoordinateSystem = None
+        self.projection = None
 
     def set_debug_data(self, **kwargs):
         self.debug_data.update(kwargs)
@@ -756,7 +767,7 @@ class ALSPointCloudData(object):
         :return:
         """
         grid_variables = list(self.shot_variables)
-        for non_grid_variable in ["timestamp", "longitude", "latitude"]:
+        for non_grid_variable in ["longitude", "latitude"]:#["timestamp", "longitude", "latitude"]:
             try:
                 grid_variables.remove(non_grid_variable)
             except ValueError:
@@ -769,6 +780,8 @@ class ALSPointCloudData(object):
         :param attr:
         :return:
         """
+        if attr=='weights' and not attr in self.line_variables:
+            self.set_weights()
         if attr in self.shot_variables:
             return self._shot_vars[attr]
         elif attr in self.line_variables:
@@ -789,6 +802,15 @@ class ALSPointCloudData(object):
             self._line_vars[attr] = var
         else:
             return None
+        
+    def set_weights(self):
+        """
+        Set weights depending of angle of view
+        """
+        wght = ((1-np.linspace(0,1,self.dims[1]))*np.linspace(0,1,self.dims[1]))
+        wght /= np.max(wght)
+        wght = np.tile(wght,(self.dims[0],1))
+        self._shot_vars['weights'] = wght
 
 
 class ALSMetadata(object):
