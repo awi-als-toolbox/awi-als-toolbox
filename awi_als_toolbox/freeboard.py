@@ -245,7 +245,7 @@ class DetectOpenWater(ALSPointCloudFilter):
             globmin = np.nanmin(elev_nadir)#np.nanmin(elev_nadir_m)
         else:
             globmin = np.nan
-        if np.any(elev_nadir==globmin):
+        if np.where(elev_nadir==globmin)[0].size>0:
             iglobmin = np.where(elev_nadir==globmin)[0][0]#np.where(elev_nadir_m==globmin)[0][0]
 
 
@@ -575,7 +575,7 @@ class AlsFreeboardConversion(object):
                 #self.func = SmoothBivariateSpline(self.xow,self.yow,self.eow)
                 self.func = RBFInterpolator(np.rollaxis(np.stack([self.xow,self.yow]),1,0),
                                             self.eow,smoothing=self.cfg['SeaSurfaceInterpolation']['smoothing'],
-                                            kernel=['SeaSurfaceInterpolation']['kernel'])
+                                            kernel=self.cfg['SeaSurfaceInterpolation']['kernel'])
                 
 
                 # 3. Compute freeboard from elevation
