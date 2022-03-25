@@ -1144,6 +1144,17 @@ class ALSMergedGrid(object):
             ds.attrs[key] = self.cfg.global_attributes.get(key)
         ds.attrs['projection'] = self.proj4str
         ds.attrs['projection_heading'] = self.heading
+        
+        ds.attrs['geospatial_lat_min']= float(ds.lat.min())
+        ds.attrs['geospatial_lat_max']= float(ds.lat.max())
+        ds.attrs['geospatial_lon_min']= float(ds.lon.min())
+        ds.attrs['geospatial_lon_max']= float(ds.lon.max())
+
+        # Compute time parameters
+        tcs = datetime.utcfromtimestamp(float(ds.timestamp.min()))
+        tce = datetime.utcfromtimestamp(float(ds.timestamp.max()))
+        self.metadata.set_attribute("time_coverage_start", tcs)
+        self.metadata.set_attribute("time_coverage_end", tce)
 
         # Turn on compression for all variables
         comp = dict(zlib=True)
