@@ -210,7 +210,7 @@ class DetectOpenWater(ALSPointCloudFilter):
         # -----> Error in atmospheric backscatter
         
 
-        logger.info("OpenWaterDetection is applied")
+        logger.info("OWDETC: OpenWaterDetection is applied")
         
         # 1. Find NADIR pixels in data
         
@@ -308,7 +308,7 @@ class DetectOpenWater(ALSPointCloudFilter):
             rflc_thres = self.cfg["rflc_thres"]
             rflc_owp = rflc_nadir[owp]
             if self.cfg["rflc_minmax"]:
-                logger.info(" - using also maxima of reflectance for open water detection")
+                logger.info("OWDETC:  - using also maxima of reflectance for open water detection")
                 mask = np.abs(rflc_owp - np.nanmean(rflc_nadir_m))> rflc_thres
             else:
                 mask = np.nanmean(rflc_nadir_m) - rflc_owp > rflc_thres
@@ -351,7 +351,7 @@ class DetectOpenWater(ALSPointCloudFilter):
 
                 ind_start = i + 1
 
-            logger.info('Number of open water points: %i and clusters: %i' %(owp.size,len(cluster_info)))
+            logger.info('OWDETC: Number of open water points: %i and clusters: %i' %(owp.size,len(cluster_info)))
 
             # 6. (optional) plot results of open water detection
             if do_plot:
@@ -366,7 +366,7 @@ class DetectOpenWater(ALSPointCloudFilter):
                 if savefig:
                     fig.savefig(Path(self.cfg["export_file"]).absolute().parent.joinpath(als.tcs_segment_datetime.strftime('Open_water_detection_%Y%m%dT%H%M%S.jpg')), 
                                 dpi=300)
-                    logger.info('Stored open water detection image to %s' %Path(self.cfg["export_file"]).absolute().parent.joinpath('Open_water_detection_%s.jpg' %als.tcs_segment_datetime))
+                    logger.info('OWDETC: Stored open water detection image to %s' %Path(self.cfg["export_file"]).absolute().parent.joinpath('Open_water_detection_%s.jpg' %als.tcs_segment_datetime))
 
 
             # 7. Export open water points
@@ -374,7 +374,7 @@ class DetectOpenWater(ALSPointCloudFilter):
             self._export_open_water_clusters(cluster_info,als)
             
         else:
-            logger.info('Warning: all nadir elevations in this segment are NaN')
+            logger.info('OWDETC: Warning: all nadir elevations in this segment are NaN')
 
     
     def _export_open_water_points(self, inds_peak, als):
@@ -450,13 +450,20 @@ class AlsFreeboardConversion(object):
             self.export_file = Path(self.cfg['OpenWaterDetection']['export_file']).absolute()
         else:
             self.export_file = Path('open_water_points.csv').absolute()
-        logger.info('Open water points are exported to: %s' %str(self.export_file))
+        logger.info('FBCONV: Open water points are exported to: %s' %str(self.export_file))
         
         if 'floe_grid' not in self.cfg['OpenWaterDetection'].keys():
             self.cfg['OpenWaterDetection']['floe_grid'] = False
             
         # Store modifications in dem_cfg
         cfg = self.cfg
+        
+        # Output config file
+        for ikey in cfg:
+            logger.info('FBCONV CFG: %s' %ikey)
+            for ikeys in cfg[ikey]:
+                logger.info('FBCONV CFG:  - %s : %s' %(ikeys,cfg[ikey][ikeys]))
+                
         
         # Initialise interpolation function
         self.func = None
@@ -546,7 +553,7 @@ class AlsFreeboardConversion(object):
                                          s=0.03,ext='const')
             
         except AttributeError:
-            logger.error('export_file is not specified')
+            logger.error('FBCONV: export_file is not specified')
     
     
     @property        
@@ -561,7 +568,7 @@ class AlsFreeboardConversion(object):
         #    logger.info('Warning: value of config interp2d in the sea surface interpolation is overwritten by input to: %i' %interp2d)
         #    self.cfg['SeaSurfaceInterpolation']['interp2d'] = interp2d
         if self.cfg['SeaSurfaceInterpolation']['interp2d']: # Use 2d interpolation of open water points
-            logger.info('Freeboard conversion: 2d interpolation of freeboard is activated')
+            logger.info('FBCONV: Freeboard conversion: 2d interpolation of freeboard is activated')
             try:
                 # 0. Read csv
                 self.read_csv()
@@ -569,7 +576,7 @@ class AlsFreeboardConversion(object):
                     # 1. Get projection to use to interpolate
                     self.p = pyproj.Proj(dem_cfg.projection)
                     self.xow, self.yow = self.p(self.lonow,self.latow)
-                    logger.info('WARNING: config projection is used to compute freeboard positions, which potentially interferes with Ice Drift Correction')
+                    logger.info('FBCONV: WARNING: config projection is used to compute freeboard positions, which potentially interferes with Ice Drift Correction')
 
                 # 2. Define 2d interpolation function
                 #self.func = SmoothBivariateSpline(self.xow,self.yow,self.eow)
@@ -598,7 +605,7 @@ class AlsFreeboardConversion(object):
                 als._shot_vars['freeboard'] = freeboard
                     
             except AttributeError:
-                logger.error('No cfg-file is provided to take projection from')
+                logger.error('FBCONV: No cfg-file is provided to take projection from')
                 
             
         else: # use timestamp for interpolation
