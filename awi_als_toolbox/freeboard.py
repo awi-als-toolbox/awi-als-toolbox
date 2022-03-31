@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 import os
 from loguru import logger
 from scipy.signal import medfilt, convolve,find_peaks
-from scipy.interpolate import interp1d, UnivariateSpline, SmoothBivariateSpline, RBFInterpolator
+from scipy.interpolate import interp1d, UnivariateSpline, SmoothBivariateSpline, RBFInterpolator, griddata
 from scipy.ndimage import uniform_filter1d
 from pathlib import Path
 import matplotlib.pylab as plt
@@ -436,7 +436,9 @@ class AlsFreeboardConversion(object):
             if ikey not in self.cfg.keys():
                 self.cfg[ikey] = {}
         
-        for ikey,ival in zip(['interp2d', 'smoothing', 'kernel'], [False, 10, 'linear']):
+        for ikey,ival in zip(['interp2d', 'smoothing', 'kernel','limit_freeboard','limit_effect_dis_ow',
+                              'n_pixel_lower_envelope', 'min_fb_ice', 'max_fb_ice','ramp_height'],
+                             [False, 10, 'linear', False, [300,500], 500, 0.05, 2, 0.1]):
             if ikey not in self.cfg['SeaSurfaceInterpolation'].keys():
                 self.cfg['SeaSurfaceInterpolation'][ikey] = ival
                 
@@ -563,11 +565,22 @@ class AlsFreeboardConversion(object):
         return self.func
             
         
-    def freeboard_computation(self, als, interp2d=False,dem_cfg=None,limit_freeboard=False, limit_effect_dis_ow=[300,500]):
+    def freeboard_computation(self, als, dem_cfg=None):
         #if self.cfg['SeaSurfaceInterpolation']['interp2d'] != interp2d:
         #    logger.info('Warning: value of config interp2d in the sea surface interpolation is overwritten by input to: %i' %interp2d)
         #    self.cfg['SeaSurfaceInterpolation']['interp2d'] = interp2d
-        self.limit_effect_dis_ow = limit_effect_dis_ow
+        #self.cfg['SeaSurfaceInterpolation']['limit_effect_dis_ow'] = limit_effect_dis_ow
+        #self.cfg['SeaSurfaceInterpolation']['n_pixel_lower_envelope'] = n_pixel_lower_envelope
+        #self.cfg['SeaSurfaceInterpolation']['min_fb_ice'] = min_fb_ice
+        #self.cfg['SeaSurfaceInterpolation']['max_fb_ice'] = max_fb_ice
+        #self.cfg['SeaSurfaceInterpolation']['ramp_height'] = ramp_height
+        
+        self.limit_effect_dis_ow = self.cfg['SeaSurfaceInterpolation']['limit_effect_dis_ow']
+        self.n_pixel_lower_envelope = self.cfg['SeaSurfaceInterpolation']['n_pixel_lower_envelope']
+        self.min_fb_ice = self.cfg['SeaSurfaceInterpolation']['min_fb_ice']
+        self.max_fb_ice = self.cfg['SeaSurfaceInterpolation']['max_fb_ice']
+        self.ramp_height = self.cfg['SeaSurfaceInterpolation']['ramp_height']
+        self.limit_freeboard = self.cfg['SeaSurfaceInterpolation']['limit_freeboard']
         
         if self.cfg['SeaSurfaceInterpolation']['interp2d']: # Use 2d interpolation of open water points
             logger.info('FBCONV: Freeboard conversion: 2d interpolation of freeboard is activated')
@@ -588,7 +601,7 @@ class AlsFreeboardConversion(object):
 
 
             # 3. Compute freeboard from elevation
-            corterm = np.zeros(als.get('elevation').shape)
+            self.ssh = np.zeros(als.get('elevation').shape)*np.nan
             x = np.zeros(als.get('elevation').shape)
             y = np.zeros(als.get('elevation').shape)
             # Compute for each line one correction term
@@ -602,7 +615,7 @@ class AlsFreeboardConversion(object):
 
                 mask = np.all([np.isfinite(x[iline,:]),np.isfinite(y[iline,:])],axis=0)
 
-                corterm[iline,mask] = self.func(np.rollaxis(np.stack([x[iline,mask],
+                self.ssh[iline,mask] = self.func(np.rollaxis(np.stack([x[iline,mask],
                                                                       y[iline,mask]]),1,0))
 
             self.x = x
@@ -614,19 +627,19 @@ class AlsFreeboardConversion(object):
             
         else: # use timestamp for interpolation
             # 1. Compute freeboard from elevation
-            corterm = np.zeros(als.get('elevation').shape)
+            self.ssh = np.zeros(als.get('elevation').shape)*np.nan
             # Compute for each line one correction term
             for iline in range(als.n_lines):
-                corterm[iline,:] = (np.ones(als.get('timestamp')[iline,:].shape)*
+                self.ssh[iline,:] = (np.ones(als.get('timestamp')[iline,:].shape)*
                                     self.interp_func(np.nanmean(als.get('timestamp')[iline,:])))
                 
-            if limit_freeboard:
+            if self.limit_freeboard:
                 try:
                     self.x, self.y = self.p(als.get('longitude'),als.get('latitude'))
                 except AttributeError:
                     logger.error('FBCONV: No cfg-file is provided to take projection from')
                 
-        if limit_freeboard:
+        if self.limit_freeboard:
             # Compute distance to open water points for all shots
             self.mask_ow_close = np.all([self.xow>=np.nanmin(self.x)-np.max(self.limit_effect_dis_ow),
                                     self.xow<=np.nanmax(self.x)+np.max(self.limit_effect_dis_ow),
@@ -646,14 +659,51 @@ class AlsFreeboardConversion(object):
             self.dis[self.dis==np.inf] = np.nan
             
             # Limit distance to range given as input
-            self.dis = (self.dis - self.limit_effect_dis_ow[0])/np.diff(self.limit_effect_dis_ow)
-            self.dis[self.dis<0] = 0
-            self.dis[self.dis>1] = 1
-        
+            self.dis = np.clip((self.dis - self.limit_effect_dis_ow[0])/np.diff(self.limit_effect_dis_ow),0,1)            
+            
+            # Determine lower envelope of elevation data
+            # in half overlapping regions of size defined by closest match to n_pixel_lower_envelope
+            self.di = np.ceil(self.x.shape[0]/np.round(self.x.shape[0]/self.n_pixel_lower_envelope))
+            self.dj = np.ceil(self.x.shape[1]/np.round(self.x.shape[1]/self.n_pixel_lower_envelope))
+            self.low_env = np.zeros((int(np.ceil(self.x.shape[0]/self.di)*2-1), #np.floor(self.x.shape[0]/self.di*2-1).astype('int'),
+                                     int(np.ceil(self.x.shape[1]/self.dj)*2-1))) #np.floor(self.x.shape[1]/self.dj*2-1).astype('int')))
+            self.x_env = np.zeros(self.low_env.shape)
+            self.y_env = np.zeros(self.low_env.shape)
+            
+            for i in range(self.low_env.shape[0]):
+                for j in range(self.low_env.shape[1]):
+                    indi = (int(i*self.di/2),int(np.min([(i+2)*self.di/2,self.x.shape[0]])))
+                    indj = (int(j*self.dj/2),int(np.min([(j+2)*self.dj/2,self.x.shape[1]])))
+                    self.low_env[i,j] = np.nanmin(als.get('elevation')[indi[0]:indi[1],indj[0]:indj[1]])
+                    self.x_env[i,j] = np.nanmean(self.x[indi[0]:indi[1],indj[0]:indj[1]])
+                    self.y_env[i,j] = np.nanmean(self.y[indi[0]:indi[1],indj[0]:indj[1]])
+                    
+            # Interpolate lower envelope to all points 
+            self.low_env_xy = RBFInterpolator(np.rollaxis(np.stack([self.x_env.flatten(),self.y_env.flatten()]),1,0),
+                            self.low_env.flatten(),kernel='linear')(np.rollaxis(np.stack([self.x.flatten(),self.y.flatten()]),1,0)).reshape(self.x.shape)
+            
+            # Compare interpolated sea surface height to lower envelope of ice
+            self.ssh_int = self.ssh.copy()
+            #self.mask_below_ssh = (self.low_env_xy<self.ssh_int).astype('int') # binary mask
+            self.mask_below_ssh = np.clip(1-((self.low_env_xy-self.ssh_int-self.min_fb_ice)/self.ramp_height),0,1) # ramped mask
+            
+            self.mask_min = self.mask_below_ssh*self.dis
+            
+            if np.any(self.mask_min>0): logger.info('FBCONV: Lower envelope below sea surface, correction required')
+            self.ssh = self.ssh*(1-self.mask_min) + self.low_env_xy*self.mask_min
+            
+            # Compare adjusted sea surface height to maximum ice freeboard
+            self.mask_above_ice = (self.low_env_xy>self.max_fb_ice).astype('int') # binary mask
+            self.mask_above_ice = np.clip(1-((self.max_fb_ice-(self.low_env_xy-self.ssh))/self.ramp_height),0,1) # ramped mask
+            
+            self.mask_max = self.mask_above_ice*self.dis
+            if np.any(self.mask_max>0): logger.info('FBCONV: Lower envelope above maximum freeboard, correction required')
+            self.ssh = self.ssh*(1-self.mask_max) + (self.low_env_xy-self.max_fb_ice)*self.mask_max
+
         
         try:
             # Compute freeboard
-            freeboard = als.get('elevation').copy() - corterm
+            freeboard = als.get('elevation').copy() - self.ssh
 
             # Store freeboard in ALS PointClodData
             als._shot_vars['freeboard'] = freeboard
