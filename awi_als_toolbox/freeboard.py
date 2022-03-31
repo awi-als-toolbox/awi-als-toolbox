@@ -563,64 +563,103 @@ class AlsFreeboardConversion(object):
         return self.func
             
         
-    def freeboard_computation(self, als, interp2d=False,dem_cfg=None):
+    def freeboard_computation(self, als, interp2d=False,dem_cfg=None,limit_freeboard=False, limit_effect_dis_ow=[300,500]):
         #if self.cfg['SeaSurfaceInterpolation']['interp2d'] != interp2d:
         #    logger.info('Warning: value of config interp2d in the sea surface interpolation is overwritten by input to: %i' %interp2d)
         #    self.cfg['SeaSurfaceInterpolation']['interp2d'] = interp2d
+        self.limit_effect_dis_ow = limit_effect_dis_ow
+        
         if self.cfg['SeaSurfaceInterpolation']['interp2d']: # Use 2d interpolation of open water points
             logger.info('FBCONV: Freeboard conversion: 2d interpolation of freeboard is activated')
-            try:
-                # 0. Read csv
-                self.read_csv()
-                if np.any([np.isnan(self.xow),np.isnan(self.yow)]):
-                    # 1. Get projection to use to interpolate
-                    self.p = pyproj.Proj(dem_cfg.projection)
-                    self.xow, self.yow = self.p(self.lonow,self.latow)
-                    logger.info('FBCONV: WARNING: config projection is used to compute freeboard positions, which potentially interferes with Ice Drift Correction')
+            #try:
+            # 0. Read csv
+            self.read_csv()
+            # 1. Get projection to use to interpolate
+            self.p = pyproj.Proj(dem_cfg.projection)
+            if np.any([np.isnan(self.xow),np.isnan(self.yow)]):
+                self.xow, self.yow = self.p(self.lonow,self.latow)
+                logger.info('FBCONV: WARNING: config projection is used to compute freeboard positions, which potentially interferes with Ice Drift Correction')
 
-                # 2. Define 2d interpolation function
-                #self.func = SmoothBivariateSpline(self.xow,self.yow,self.eow)
-                self.func = RBFInterpolator(np.rollaxis(np.stack([self.xow,self.yow]),1,0),
-                                            self.eow,smoothing=self.cfg['SeaSurfaceInterpolation']['smoothing'],
-                                            kernel=self.cfg['SeaSurfaceInterpolation']['kernel'])
-                
+            # 2. Define 2d interpolation function
+            #self.func = SmoothBivariateSpline(self.xow,self.yow,self.eow)
+            self.func = RBFInterpolator(np.rollaxis(np.stack([self.xow,self.yow]),1,0),
+                                        self.eow,smoothing=self.cfg['SeaSurfaceInterpolation']['smoothing'],
+                                        kernel=self.cfg['SeaSurfaceInterpolation']['kernel'])
 
-                # 3. Compute freeboard from elevation
-                freeboard = als.get('elevation').copy()
-                # Compute for each line one correction term
-                for iline in range(als.n_lines):
-                    if als.x is None or als.y is None:
-                        x,y = self.p(als.get('longitude')[iline,:],
-                                     als.get('latitude')[iline,:])
-                    else:
-                        x = als.x[iline,:]
-                        y = als.y[iline,:]
 
-                    mask = np.all([np.isfinite(x),np.isfinite(y)],axis=0)
+            # 3. Compute freeboard from elevation
+            corterm = np.zeros(als.get('elevation').shape)
+            x = np.zeros(als.get('elevation').shape)
+            y = np.zeros(als.get('elevation').shape)
+            # Compute for each line one correction term
+            for iline in range(als.n_lines):
+                if not hasattr(als,'x') or not hasattr(als,'y'):
+                    x[iline,:],y[iline,:] = self.p(als.get('longitude')[iline,:],
+                                                   als.get('latitude')[iline,:])
+                else:
+                    x[iline,:] = als.x[iline,:]
+                    y[iline,:] = als.y[iline,:]
 
-                    freeboard[iline,mask] -= self.func(np.rollaxis(np.stack([x[mask],
-                                                                             y[mask]]),1,0))
+                mask = np.all([np.isfinite(x[iline,:]),np.isfinite(y[iline,:])],axis=0)
+
+                corterm[iline,mask] = self.func(np.rollaxis(np.stack([x[iline,mask],
+                                                                      y[iline,mask]]),1,0))
+
+            self.x = x
+            self.y = y
                     
-                # 4. Store freeboard in ALSPointCloudData
-                als._shot_vars['freeboard'] = freeboard
-                    
-            except AttributeError:
-                logger.error('FBCONV: No cfg-file is provided to take projection from')
+            #except AttributeError:
+            #    logger.error('FBCONV: No cfg-file is provided to take projection from')
                 
             
         else: # use timestamp for interpolation
             # 1. Compute freeboard from elevation
-            freeboard = als.get('elevation').copy()
+            corterm = np.zeros(als.get('elevation').shape)
             # Compute for each line one correction term
             for iline in range(als.n_lines):
-                freeboard[iline,:] -= self.interp_func(np.nanmean(als.get('timestamp')[iline,:]))
+                corterm[iline,:] = (np.ones(als.get('timestamp')[iline,:].shape)*
+                                    self.interp_func(np.nanmean(als.get('timestamp')[iline,:])))
+                
+            if limit_freeboard:
+                try:
+                    self.x, self.y = self.p(als.get('longitude'),als.get('latitude'))
+                except AttributeError:
+                    logger.error('FBCONV: No cfg-file is provided to take projection from')
+                
+        if limit_freeboard:
+            # Compute distance to open water points for all shots
+            self.mask_ow_close = np.all([self.xow>=np.nanmin(self.x)-np.max(self.limit_effect_dis_ow),
+                                    self.xow<=np.nanmax(self.x)+np.max(self.limit_effect_dis_ow),
+                                    self.yow>=np.nanmin(self.y)-np.max(self.limit_effect_dis_ow),
+                                    self.yow<=np.nanmax(self.y)+np.max(self.limit_effect_dis_ow)],axis=0)
+            
+            # Initialize array for distances to closest open water point
+            self.dis = np.ones(self.x.shape)*np.inf
+            
+            # Loop through all close open water points to compute distances
+            for ixow,iyow in zip(self.xow[self.mask_ow_close],self.yow[self.mask_ow_close]):
+                dis = np.sqrt((self.x-ixow)**2+(self.y-iyow)**2)
+                
+                # Store distance if smaller than the smallest distance so far
+                self.dis[self.dis>dis] = dis[self.dis>dis]
+            
+            self.dis[self.dis==np.inf] = np.nan
+            
+            # Limit distance to range given as input
+            self.dis = (self.dis - self.limit_effect_dis_ow[0])/np.diff(self.limit_effect_dis_ow)
+            self.dis[self.dis<0] = 0
+            self.dis[self.dis>1] = 1
+        
+        
+        try:
+            # Compute freeboard
+            freeboard = als.get('elevation').copy() - corterm
 
-            # 2. Store freeboard in ALSPointCloudData
+            # Store freeboard in ALS PointClodData
             als._shot_vars['freeboard'] = freeboard
-   
-        
-        
-        
+            
+        except NameError:
+            logger.error('FBCONV: correction term was not computed correct')
         
         
 def open_water_detection_wrapper(als_filepath, dem_cfg, file_version, start_sec, stop_sec, i, n_segments, cfg):
