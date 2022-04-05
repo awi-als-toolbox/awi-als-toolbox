@@ -635,28 +635,47 @@ class AlsFreeboardConversion(object):
                 
             if self.limit_freeboard:
                 try:
-                    self.x, self.y = self.p(als.get('longitude'),als.get('latitude'))
+                    if not hasattr(als,'x') or not hasattr(als,'y'):
+                        self.x, self.y = self.p(als.get('longitude'),als.get('latitude'))
+                    else:
+                        self.x = als.x
+                        self.y = als.y
                 except AttributeError:
                     logger.error('FBCONV: No cfg-file is provided to take projection from')
-                
+         
+        # Store interpolated SSH
+        self.ssh_int = self.ssh.copy()
+        
         if self.limit_freeboard:
+            logger.info('FBCONV: Freeboard conversion: limit the freeboard by lower envelope and maximum freeboard is activated')
             # Compute distance to open water points for all shots
-            self.mask_ow_close = np.all([self.xow>=np.nanmin(self.x)-np.max(self.limit_effect_dis_ow),
-                                    self.xow<=np.nanmax(self.x)+np.max(self.limit_effect_dis_ow),
-                                    self.yow>=np.nanmin(self.y)-np.max(self.limit_effect_dis_ow),
-                                    self.yow<=np.nanmax(self.y)+np.max(self.limit_effect_dis_ow)],axis=0)
+            if self.cfg['SeaSurfaceInterpolation']['interp2d']:
+                self.time_dis = 2*60
+                self.mask_ow_close = np.all([self.xow>=np.nanmin(self.x)-np.max(self.limit_effect_dis_ow),
+                                             self.xow<=np.nanmax(self.x)+np.max(self.limit_effect_dis_ow),
+                                             self.yow>=np.nanmin(self.y)-np.max(self.limit_effect_dis_ow),
+                                             self.yow<=np.nanmax(self.y)+np.max(self.limit_effect_dis_ow),
+                                             self.tow>=np.nanmin(als.get('timestamp'))-self.time_dis,
+                                             self.tow<=np.nanmax(als.get('timestamp'))+self.time_dis],axis=0)
+            else:
+                self.time_dis = 120
+                self.mask_ow_close = np.all([self.tow>=np.nanmin(als.get('timestamp'))-self.time_dis,
+                                             self.tow<=np.nanmax(als.get('timestamp'))+self.time_dis],axis=0)
             
             # Initialize array for distances to closest open water point
             self.dis = np.ones(self.x.shape)*np.inf
+            self.id_nearest_owp = np.ones(self.x.shape)*np.nan
             
             # Loop through all close open water points to compute distances
-            for ixow,iyow in zip(self.xow[self.mask_ow_close],self.yow[self.mask_ow_close]):
+            for iow,(ixow,iyow) in enumerate(zip(self.xow[self.mask_ow_close],self.yow[self.mask_ow_close])):
                 dis = np.sqrt((self.x-ixow)**2+(self.y-iyow)**2)
                 
+                # Store id of nearest open water point
+                self.id_nearest_owp[self.dis>dis] = np.where(self.mask_ow_close)[0][iow]
                 # Store distance if smaller than the smallest distance so far
                 self.dis[self.dis>dis] = dis[self.dis>dis]
             
-            self.dis[self.dis==np.inf] = np.nan
+            #self.dis[self.dis==np.inf] = np.nan
             
             # Limit distance to range given as input
             self.dis = np.clip((self.dis - self.limit_effect_dis_ow[0])/np.diff(self.limit_effect_dis_ow),0,1)            
@@ -678,28 +697,29 @@ class AlsFreeboardConversion(object):
                     self.x_env[i,j] = np.nanmean(self.x[indi[0]:indi[1],indj[0]:indj[1]])
                     self.y_env[i,j] = np.nanmean(self.y[indi[0]:indi[1],indj[0]:indj[1]])
                     
-            # Interpolate lower envelope to all points 
-            self.low_env_xy = RBFInterpolator(np.rollaxis(np.stack([self.x_env.flatten(),self.y_env.flatten()]),1,0),
-                            self.low_env.flatten(),kernel='linear')(np.rollaxis(np.stack([self.x.flatten(),self.y.flatten()]),1,0)).reshape(self.x.shape)
+            # Interpolate lower envelope to all points
+            mask_low_env = np.all([np.isfinite(ifield) for ifield in [self.low_env,self.x_env,self.y_env]],axis=0)
+            if mask_low_env.sum()<self.low_env.size:
+                logger.info('FBCONV: warning, lower envelope fields include non finite vaules')
+            self.low_env_xy = RBFInterpolator(np.rollaxis(np.stack([self.x_env[mask_low_env].flatten(),self.y_env[mask_low_env].flatten()]),1,0),
+                            self.low_env[mask_low_env].flatten(),kernel='linear')(np.rollaxis(np.stack([self.x.flatten(),self.y.flatten()]),1,0)).reshape(self.x.shape)
             
             # Compare interpolated sea surface height to lower envelope of ice
-            self.ssh_int = self.ssh.copy()
             #self.mask_below_ssh = (self.low_env_xy<self.ssh_int).astype('int') # binary mask
             self.mask_below_ssh = np.clip(1-((self.low_env_xy-self.ssh_int-self.min_fb_ice)/self.ramp_height),0,1) # ramped mask
             
             self.mask_min = self.mask_below_ssh*self.dis
             
             if np.any(self.mask_min>0): logger.info('FBCONV: Lower envelope below sea surface, correction required')
-            self.ssh = self.ssh*(1-self.mask_min) + self.low_env_xy*self.mask_min
+            self.ssh = self.ssh*(1-self.mask_min) + (self.low_env_xy+self.min_fb_ice)*self.mask_min
             
             # Compare adjusted sea surface height to maximum ice freeboard
             self.mask_above_ice = (self.low_env_xy>self.max_fb_ice).astype('int') # binary mask
-            self.mask_above_ice = np.clip(1-((self.max_fb_ice-(self.low_env_xy-self.ssh))/self.ramp_height),0,1) # ramped mask
+            self.mask_above_ice = np.clip(1-((self.max_fb_ice-(self.low_env_xy-self.ssh.copy()))/self.ramp_height),0,1) # ramped mask
             
             self.mask_max = self.mask_above_ice*self.dis
             if np.any(self.mask_max>0): logger.info('FBCONV: Lower envelope above maximum freeboard, correction required')
             self.ssh = self.ssh*(1-self.mask_max) + (self.low_env_xy-self.max_fb_ice)*self.mask_max
-
         
         try:
             # Compute freeboard
@@ -707,6 +727,52 @@ class AlsFreeboardConversion(object):
 
             # Store freeboard in ALS PointClodData
             als._shot_vars['freeboard'] = freeboard
+
+            # Store sea surface height in ALS PointClodData
+            als._shot_vars['sea_surface_height'] = self.ssh.copy()
+
+            # Freeboard uncertainty
+            fb_uncertainty = freeboard*0. + self.cfg['OpenWaterDetection']['elev_tol']
+            # Add limited areas of SSH to uncertainty
+            fb_uncertainty += np.abs(self.ssh-self.ssh_int)
+            # Add elevation correction effect to nearest open water point
+            elev_cor_file = Path('./elevation_correction.csv')
+            if elev_cor_file.is_file():
+                logger.info('FBCONV: elevation correction is taken into account for freeboard uncertainty')
+                # Read offset correction file
+                df = pd.read_csv(elev_cor_file)
+                t = np.array(df['timestamp'])
+                c = np.array(df['elevation_offset'])
+
+                # Set-up interpolation function
+                func = interp1d(t-t[0],c, kind='linear',bounds_error=False,
+                                fill_value=(c[0],c[-1]))
+                # Elevation correction term for ALS shots
+                elev_cor = func(als.get("timestamp")-t[0])
+                # Elevation correction term to closest open water point (in time)
+                #  Check if closest open water point is defined
+                mask_fb_wo_owp = np.all([np.isfinite(fb_uncertainty),np.isnan(self.id_nearest_owp)],axis=0)
+                if np.any(mask_fb_wo_owp):
+                    id_fill_owp = np.argmin(np.abs(self.tow-np.nanmean(als.get("timestamp")[mask_fb_wo_owp])))
+                    self.id_nearest_owp[mask_fb_wo_owp] = id_fill_owp
+                
+                print(np.unique(self.id_nearest_owp))
+                for iowp in np.unique(self.id_nearest_owp[np.isfinite(self.id_nearest_owp)]).astype('int'):
+                    elev_cor_owp = func(self.tow[iowp]-t[0])
+                    fb_uncertainty[self.id_nearest_owp==iowp] += np.abs(elev_cor[self.id_nearest_owp==iowp]-elev_cor_owp)
+                
+            # Store freeboard uncertainty
+            als._shot_vars['freeboard_uncertainty'] = fb_uncertainty
+            
+            als._shot_vars['mask_above_ice'] = self.mask_above_ice
+            als._shot_vars['mask_below_ssh'] = self.mask_below_ssh
+            als._shot_vars['mask_max'] = self.mask_max
+            als._shot_vars['mask_min'] = self.mask_min
+            als._shot_vars['ssh_int'] = self.ssh_int
+            als._shot_vars['dis'] = self.dis
+            als._shot_vars['low_env_xy'] = self.low_env_xy
+            
+
             
         except NameError:
             logger.error('FBCONV: correction term was not computed correct')

@@ -698,7 +698,7 @@ class ALSGridCollection(object):
         # Check if correction is activated for variables
         try:
             correction  = len(cfg.offset_correction['correcting_fields'])>0
-            uncertainty = np.sum([i.endswith('_uncertainty') for i in cfg.variable_attributes.keys()])>0
+            uncertainty = np.sum([i.endswith('_offset_cor_uncertainty') for i in cfg.variable_attributes.keys()])>0
         except:
             correction  = False
             uncertainty = False
@@ -912,10 +912,10 @@ class ALSMergedGrid(object):
         self.cfg = cfg
         print(self.cfg.offset_correction['correcting_fields'])
         try:
-            self.grid_variable_names = [i for i in self.cfg.variable_attributes.keys() if i not in self.coord_names and not i.endswith('_uncertainty')]
+            self.grid_variable_names = [i for i in self.cfg.variable_attributes.keys() if i not in self.coord_names and not i.endswith('_offset_cor_uncertainty')]
             self.correcting_fields = self.cfg.offset_correction['correcting_fields']
             self.correction = {ivar:ALSCorrection(ivar) for ivar in self.correcting_fields}
-            self.uncertainty_fields = [i.split('_')[0] for i in self.cfg.variable_attributes.keys() if i not in self.coord_names and i.endswith('_uncertainty')]
+            self.uncertainty_fields = [i.split('_')[0] for i in self.cfg.variable_attributes.keys() if i not in self.coord_names and i.endswith('_offset_cor_uncertainty')]
             logger.info("ELEVCOR: Unvertainty computation activated for: %s" %", ".join(self.uncertainty_fields))
             for ikey in self.cfg.offset_correction:
                 logger.info("ELEVCOR CFG: %s: %s" %(ikey,self.cfg.offset_correction[ikey]))
@@ -1225,9 +1225,18 @@ class ALSMergedGrid(object):
         for grid_variable_name in [i for i in self.grid_variable_names if i.endswith('_max') or i.endswith('_min')]:
             self.grid[grid_variable_name][~np.isfinite(self.grid[grid_variable_name])] = np.nan
         for ivar in self.uncertainty_fields:
-            self.grid['%s_uncertainty' %ivar] = self.grid['%s_max' %ivar]-self.grid['%s_min' %ivar]
-            self.grid['%s_uncertainty' %ivar][~np.isfinite(self.grid['%s_uncertainty' %ivar])] = np.nan
+            self.grid['%s_offset_cor_uncertainty' %ivar] = self.grid['%s_max' %ivar]-self.grid['%s_min' %ivar]
+            self.grid['%s_offset_cor_uncertainty' %ivar][~np.isfinite(self.grid['%s_offset_cor_uncertainty' %ivar])] = np.nan
 
+    @property
+    def fn_res(self):
+        """
+        A filename compatible resolution str
+        :return: str
+        """
+        res_str = "%.2fm" % self.res
+        res_str = res_str.replace(".", "p")
+        return res_str
     
     def filename(self, filetype, field_name='als'):
         """
@@ -1237,7 +1246,7 @@ class ALSMergedGrid(object):
         """
         try:
             template = str(self.cfg.filenaming)
-            filename = template.format(field_name=field_name,res=self.res,tcs=(datetime(1970,1,1,0,0,0) + timedelta(0,self.reftimes[0])).strftime("%Y%m%dT%H%M%S"), 
+            filename = template.format(field_name=field_name,res=self.fn_res,tcs=(datetime(1970,1,1,0,0,0) + timedelta(0,self.reftimes[0])).strftime("%Y%m%dT%H%M%S"), 
                                        tce=(datetime(1970,1,1,0,0,0) + timedelta(0,self.reftimes[-1])).strftime("%Y%m%dT%H%M%S"),ftype=filetype)
             return filename
         except:
@@ -1260,7 +1269,7 @@ class ALSCorrection(object):
         self.smpl_freq = smpl_freq
         self.export_dir = export_dir
         self.export_file = self.variable + export_file
-        self.export_tiepoint_file = self.variable + '_tiepoints' + export_file
+        self.export_tiepoint_file = self.variable + '_tiepoints.csv'
         
         self.mean_elev   = np.array([]) # Mean variable (elevation) in 30s segment
         self.mean_elev_t = np.array([]) # Mean time in 30s segment
@@ -1487,6 +1496,7 @@ class ALSCorrection(object):
                 f.write('%.15f,%.15f\n' %(0.5*(self.t_bins[1:]+
                                       self.t_bins[:-1])[self.ind_c][i],self.c[i]))
             f.close()
+        logger.info('ELEVCOR: correction term exported to %s' %(export_file))
      
     
     # Function to open csv export file to write info into
