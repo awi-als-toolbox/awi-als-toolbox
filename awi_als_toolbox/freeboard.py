@@ -438,7 +438,7 @@ class AlsFreeboardConversion(object):
         
         for ikey,ival in zip(['interp2d', 'smoothing', 'kernel','limit_freeboard','limit_effect_dis_ow',
                               'n_pixel_lower_envelope', 'min_fb_ice', 'max_fb_ice','ramp_height'],
-                             [False, 10, 'linear', False, [300,500], 500, 0.05, 2, 0.1]):
+                             [False, 10, 'linear', False, [20,50], 500, 0.05, 2, 0.1]):
             if ikey not in self.cfg['SeaSurfaceInterpolation'].keys():
                 self.cfg['SeaSurfaceInterpolation'][ikey] = ival
                 
@@ -636,7 +636,9 @@ class AlsFreeboardConversion(object):
             if self.limit_freeboard:
                 try:
                     if not hasattr(als,'x') or not hasattr(als,'y'):
+                        self.p = pyproj.Proj(dem_cfg.projection)
                         self.x, self.y = self.p(als.get('longitude'),als.get('latitude'))
+                        self.xow, self.yow = self.p(self.lonow,self.latow)
                     else:
                         self.x = als.x
                         self.y = als.y
@@ -721,20 +723,22 @@ class AlsFreeboardConversion(object):
             if np.any(self.mask_max>0): logger.info('FBCONV: Lower envelope above maximum freeboard, correction required')
             self.ssh = self.ssh*(1-self.mask_max) + (self.low_env_xy-self.max_fb_ice)*self.mask_max
         
+
+        # Compute freeboard
+        freeboard = als.get('elevation').copy() - self.ssh
+
+        # Store freeboard in ALS PointClodData
+        als._shot_vars['freeboard'] = freeboard
+
+        # Store sea surface height in ALS PointClodData
+        als._shot_vars['sea_surface_height'] = self.ssh.copy()
+
+        # Freeboard uncertainty
+        fb_uncertainty = freeboard*0. + self.cfg['OpenWaterDetection']['elev_tol']
+        # Add limited areas of SSH to uncertainty
+        fb_uncertainty += np.abs(self.ssh-self.ssh_int)
+            
         try:
-            # Compute freeboard
-            freeboard = als.get('elevation').copy() - self.ssh
-
-            # Store freeboard in ALS PointClodData
-            als._shot_vars['freeboard'] = freeboard
-
-            # Store sea surface height in ALS PointClodData
-            als._shot_vars['sea_surface_height'] = self.ssh.copy()
-
-            # Freeboard uncertainty
-            fb_uncertainty = freeboard*0. + self.cfg['OpenWaterDetection']['elev_tol']
-            # Add limited areas of SSH to uncertainty
-            fb_uncertainty += np.abs(self.ssh-self.ssh_int)
             # Add elevation correction effect to nearest open water point
             elev_cor_file = Path('./elevation_correction.csv')
             if elev_cor_file.is_file():
@@ -760,22 +764,12 @@ class AlsFreeboardConversion(object):
                 for iowp in np.unique(self.id_nearest_owp[np.isfinite(self.id_nearest_owp)]).astype('int'):
                     elev_cor_owp = func(self.tow[iowp]-t[0])
                     fb_uncertainty[self.id_nearest_owp==iowp] += np.abs(elev_cor[self.id_nearest_owp==iowp]-elev_cor_owp)
-                
-            # Store freeboard uncertainty
-            als._shot_vars['freeboard_uncertainty'] = fb_uncertainty
             
-            als._shot_vars['mask_above_ice'] = self.mask_above_ice
-            als._shot_vars['mask_below_ssh'] = self.mask_below_ssh
-            als._shot_vars['mask_max'] = self.mask_max
-            als._shot_vars['mask_min'] = self.mask_min
-            als._shot_vars['ssh_int'] = self.ssh_int
-            als._shot_vars['dis'] = self.dis
-            als._shot_vars['low_env_xy'] = self.low_env_xy
-            
-
-            
-        except NameError:
+        except (NameError, AttributeError) as e:
             logger.error('FBCONV: correction term was not computed correct')
+        
+        # Store freeboard uncertainty
+        als._shot_vars['freeboard_uncertainty'] = fb_uncertainty
         
         
 def open_water_detection_wrapper(als_filepath, dem_cfg, file_version, start_sec, stop_sec, i, n_segments, cfg):
