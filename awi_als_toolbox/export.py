@@ -99,9 +99,9 @@ class AlsDEMNetCDF(object):
         # Add additional variables
         data_vars["n_points"] = xr.Variable(grid_dims, self.dem.n_shots.astype(np.int16),
                                             attrs=self.cfg.get_var_attrs("n_points"))
-        data_vars["lon"] = xr.Variable(coord_dims, self.dem.lon.astype(np.float32),
+        data_vars["lon"] = xr.Variable(coord_dims, self.dem.lon.astype(np.float64),
                                        attrs=self.cfg.get_var_attrs("lon"))
-        data_vars["lat"] = xr.Variable(coord_dims, self.dem.lat.astype(np.float32),
+        data_vars["lat"] = xr.Variable(coord_dims, self.dem.lat.astype(np.float64),
                                        attrs=self.cfg.get_var_attrs("lat"))
 
         # Add grid mapping

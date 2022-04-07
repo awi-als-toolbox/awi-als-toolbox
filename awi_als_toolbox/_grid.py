@@ -910,7 +910,7 @@ class ALSMergedGrid(object):
         # Check which variables to grid
         self.coord_names = ['lat', 'lon', 'xc', 'yc', 'time', 'time_bnds']
         self.cfg = cfg
-        print(self.cfg.offset_correction['correcting_fields'])
+        #print(self.cfg.offset_correction['correcting_fields'])
         try:
             self.grid_variable_names = [i for i in self.cfg.variable_attributes.keys() if i not in self.coord_names and not i.endswith('_offset_cor_uncertainty')]
             self.correcting_fields = self.cfg.offset_correction['correcting_fields']
@@ -1129,9 +1129,9 @@ class ALSMergedGrid(object):
             except ImportError:
                 logger.error("Install packages floenavi and icedrift for ice drift corrected lat/lon values")
         
-        data_vars["lon"] = xr.Variable(grid_dims, self.lons.astype(np.float32),
+        data_vars["lon"] = xr.Variable(grid_dims, self.lons.astype(np.float64),
                                        attrs=self.cfg.get_var_attrs("lon"))
-        data_vars["lat"] = xr.Variable(coord_dims, self.lats.astype(np.float32),
+        data_vars["lat"] = xr.Variable(coord_dims, self.lats.astype(np.float64),
                                        attrs=self.cfg.get_var_attrs("lat"))
 
         # Collect all coords
@@ -1638,6 +1638,12 @@ def extract_low_reflectance_regions(grid, thres=3,filt_size=5,chunk_size=0.5,min
     emean = uniform_filter(eref,size=background_scale)/uniform_filter(mask_eref.astype('float'),size=background_scale)
     emean[~mask_eref] = np.nan
     ebckg_reg = emean[mask] - eref_reg
+    
+    # Mask leads, i.e. e<emean
+    mask_leads = grid.nc['elevation'].data[mask]<emean[mask]
+    t_reg = t_reg[mask_leads]
+    eref_reg = eref_reg[mask_leads]
+    ebckg_reg = ebckg_reg[mask_leads]
 
     # Initialze data arrays for clusters
     t = []
