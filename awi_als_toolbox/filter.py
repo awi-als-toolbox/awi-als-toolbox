@@ -232,6 +232,9 @@ class OffsetCorrectionFilter(ALSPointCloudFilter):
         # Check for correction files stored
         self.corr_files = [ifile for ifile in os.listdir('./') if ifile.endswith(self.cfg['export_file'])]
         
+        if len(self.corr_files)==0:
+            logger.info('ELEVCOR: Warning - OffsetCorrectionFilter called without providing correction files')
+        
         # Apply correction to als object
         for icor in self.corr_files:
             fpath = Path(icor).absolute()
