@@ -1,3 +1,6 @@
+affine
+attrdict
+cached_property
 cmocean
 construct
 loguru
@@ -5,9 +8,9 @@ matplotlib
 netcdf4
 numpy
 gdal
+pandas
 pyproj
 scipy
 tqdm
 xarray
-cached-property
-attrdict
+
