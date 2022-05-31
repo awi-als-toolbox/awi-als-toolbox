@@ -4,7 +4,7 @@ loguru
 matplotlib
 netcdf4
 numpy
-osgeo
+gdal
 pyproj
 scipy
 tqdm
