@@ -550,9 +550,22 @@ class AlsFreeboardConversion(object):
             # fit function
             #self.func = interp1d(tow,eow,kind='linear',fill_value='extrapolate',bounds_error=False)
             
-            self.func = UnivariateSpline(np.unique(np.stack([self.tow,self.eow]),axis=1)[0,:],
-                                         np.unique(np.stack([self.tow,self.eow]),axis=1)[1,:],
-                                         s=0.03,ext='const')
+            if np.unique(np.stack([self.tow,self.eow]),axis=1)[0,:].size>3:
+                self.func = UnivariateSpline(np.unique(np.stack([self.tow,self.eow]),axis=1)[0,:],
+                                             np.unique(np.stack([self.tow,self.eow]),axis=1)[1,:],
+                                             s=0.03,ext='const')
+            elif np.unique(np.stack([self.tow,self.eow]),axis=1)[0,:].size>=2:
+                logger.info('FBCONV: Warning less than 3 open water points are available to compute freeboard. Linear interpolation is activated')
+                self.func = interp1d(np.unique(np.stack([self.tow,self.eow]),axis=1)[0,:],np.unique(np.stack([self.tow,self.eow]),axis=1)[1,:],
+                                     fill_value=(np.unique(np.stack([self.tow,self.eow]),axis=1)[1,:][0],
+                                                 np.unique(np.stack([self.tow,self.eow]),axis=1)[1,:][-1]))
+            elif np.unique(np.stack([self.tow,self.eow]),axis=1)[0,:].size>=1:
+                logger.info('FBCONV: Warning only 1 open water points is available to compute freeboard. Constant sea surface height is used')
+                self.func = interp1d(np.array([0,100]),np.array(self.eow,self.eow),fill_value=self.eow)
+            else:
+                logger.info('FBCONV: Warning NO open water points is available to compute freeboard. Sea surface height is set to 0!')
+                self.func = interp1d(np.array([0,100]),np.array([0,0]),fill_value=0)
+                
             
         except AttributeError:
             logger.error('FBCONV: export_file is not specified')

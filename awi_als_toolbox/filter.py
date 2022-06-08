@@ -246,9 +246,11 @@ class OffsetCorrectionFilter(ALSPointCloudFilter):
             t = np.array(df['timestamp'])
             c = np.array(df['%s_offset' %variable])
             
+            mask = np.all([np.isfinite(t),np.isfinite(c)],axis=0)
+            
             # Set-up interpolation function
-            func = interp1d(t-t[0],c, kind='linear',bounds_error=False,
-                            fill_value=(c[0],c[-1]))
+            func = interp1d(t[mask]-t[0],c[mask], kind='linear',bounds_error=False,
+                            fill_value=(c[mask][0],c[mask][-1]))
             
             # Apply ALS binary file
             data = als.get(variable)
