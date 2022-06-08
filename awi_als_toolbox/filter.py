@@ -246,7 +246,7 @@ class OffsetCorrectionFilter(ALSPointCloudFilter):
             t = np.array(df['timestamp'])
             c = np.array(df['%s_offset' %variable])
             
-            mask = np.all([np.isfinite(t),np.isifinite(c)],axis=0)
+            mask = np.all([np.isfinite(t),np.isfinite(c)],axis=0)
             
             # Set-up interpolation function
             func = interp1d(t[mask]-t[0],c[mask], kind='linear',bounds_error=False,

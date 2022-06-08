@@ -227,7 +227,7 @@ class AlsDEM(object):
         # IDC TODO reverse the IceDriftCorrection is needed here!
         # IDC else:
         if self.IceDriftCorrection:
-            reftime = self.als.tcs_segment_datetime + 0.5*(self.als.tce_segment_datetime-self.als.tcs_segment_datetime)
+            reftime = self.als.tcs_segment_datetime + 0.5*(self.als.tce_segment_datetime-self.als.tcs_segment_datetime) 
             icepos = self.als.IceCoordinateSystem.get_latlon_coordinates(self.dem_x, self.dem_y, reftime)
             self.lon ,self.lat = icepos.longitude, icepos.latitude
         else:
