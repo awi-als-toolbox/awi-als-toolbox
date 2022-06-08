@@ -120,12 +120,12 @@ class IceDriftCorrection(ALSPointCloudFilter):
     Corrects for ice drift during data aquisition, using floenavi or Polarstern position
     """
 
-    def __init__(self,use_polarstern=False,reftimes=None):
+    def __init__(self,use_polarstern=False,reftimes=None,reftime=None):
         """
         Initialize the filter.
         :param filter_threshold_m:
         """
-        super(IceDriftCorrection, self).__init__(use_polarstern=use_polarstern,reftimes=reftimes)
+        super(IceDriftCorrection, self).__init__(use_polarstern=use_polarstern,reftimes=reftimes,reftime=reftime)
 
     def apply(self, als):
         """

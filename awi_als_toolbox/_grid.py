@@ -227,8 +227,11 @@ class AlsDEM(object):
         # IDC TODO reverse the IceDriftCorrection is needed here!
         # IDC else:
         if self.IceDriftCorrection:
-            reftime = self.als.tcs_segment_datetime + 0.5*(self.als.tce_segment_datetime-self.als.tcs_segment_datetime) 
-            icepos = self.als.IceCoordinateSystem.get_latlon_coordinates(self.dem_x, self.dem_y, reftime)
+            #reftime = self.als.tcs_segment_datetime + 0.5*(self.als.tce_segment_datetime-self.als.tcs_segment_datetime)
+            idc_cfg = self.cfg.input_filter[np.where([ifilt['pyclass']=='IceDriftCorrection' for ifilt in self.cfg.input_filter])[0][0]]
+            self.gridreftime = idc_cfg['keyw']['reftime']
+            self.metadata.set_attribute("reference_time_drift_correction", self.gridreftime)
+            icepos = self.als.IceCoordinateSystem.get_latlon_coordinates(self.dem_x, self.dem_y, self.gridreftime)
             self.lon ,self.lat = icepos.longitude, icepos.latitude
         else:
             self.lon, self.lat = self.p(self.dem_x, self.dem_y, inverse=True)
@@ -1112,7 +1115,8 @@ class ALSMergedGrid(object):
             data_vars[grid_variable_name] = xr.Variable(grid_dims,self.grid[grid_variable_name].astype(np.float32),
                                             attrs=self.cfg.get_var_attrs(grid_variable_name))
             
-        self.reftime = datetime(1970,1,1,0,0,0) + timedelta(0,np.mean(self.reftimes))
+        #self.reftime = datetime(1970,1,1,0,0,0) + timedelta(0,np.mean(self.reftimes))
+        self.reftime = self.cfg.ice_drift_correction['keyw']['reftime']
         if recompute_latlon == True:
             try:
                 from floenavi.polarstern import PolarsternAWIDashboardPos
