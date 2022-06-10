@@ -155,6 +155,13 @@ class IceDriftCorrection(ALSPointCloudFilter):
         # 6. Store projected coordinates
         als.x[nonan] = icepos.xc
         als.y[nonan] = icepos.yc
+        
+        # 6. a) Replace lat lon with dirft corrected lat lons
+        icepos = self.IceCoordinateSystem.get_latlon_coordinates(als.x[nonan], als.y[nonan], self.cfg["reftime"])
+        lon,lat = als.get('longitude'), als.get('latitude')
+        lon[nonan],lat[nonan] = icepos.longitude, icepos.latitude
+        als.set('longitude',lon)
+        als.set('latitude',lat)
 
         # 7. Set IceDriftCorrected
         als.IceDriftCorrected = True
