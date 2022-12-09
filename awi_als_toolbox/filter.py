@@ -53,11 +53,15 @@ class AtmosphericBackscatterFilter(ALSPointCloudFilter):
         # first mode of elevations
         elevations = als.get('elevation')
         # Determine elevation of first mode
-        hist,bins = np.histogram(elevations[np.isfinite(elevations)],bins=100)
+        #hist,bins = np.histogram(elevations[np.isfinite(elevations)],bins=100)
+        hist,bins = np.histogram(elevations[np.isfinite(elevations)],
+                                 bins=np.arange(np.nanmin(elevations),
+                                                np.nanmax(elevations),0.5))
         diff = np.diff(np.append(np.zeros((1,)),hist))
         if np.any(np.all([diff[1:]<0,diff[:-1]>0],axis=0)):
-            ind_peak = np.where(np.all([diff[1:]<0,diff[:-1]>0],axis=0))[0][0]
-            min_mode_elev = np.mean(bins[ind_peak:ind_peak+2])
+            ind_peaks = np.where(np.all([diff[1:]<0,diff[:-1]>0],axis=0))#[0][0]
+            ice_mode = ind_peaks[0][np.argmax(hist[ind_peaks])]
+            min_mode_elev = np.mean(bins[ice_mode:ice_mode+2])#ind_peak:ind_peak+2])
         else:
             min_mode_elev = np.nanmean(elevations)
         threshold = 20
@@ -120,12 +124,12 @@ class IceDriftCorrection(ALSPointCloudFilter):
     Corrects for ice drift during data aquisition, using floenavi or Polarstern position
     """
 
-    def __init__(self,use_polarstern=False,reftimes=None):
+    def __init__(self,use_polarstern=False,reftimes=None,reftime=None):
         """
         Initialize the filter.
         :param filter_threshold_m:
         """
-        super(IceDriftCorrection, self).__init__(use_polarstern=use_polarstern,reftimes=reftimes)
+        super(IceDriftCorrection, self).__init__(use_polarstern=use_polarstern,reftimes=reftimes,reftime=reftime)
 
     def apply(self, als):
         """
@@ -155,6 +159,13 @@ class IceDriftCorrection(ALSPointCloudFilter):
         # 6. Store projected coordinates
         als.x[nonan] = icepos.xc
         als.y[nonan] = icepos.yc
+        
+        # 6. a) Replace lat lon with dirft corrected lat lons
+        icepos = self.IceCoordinateSystem.get_latlon_coordinates(als.x[nonan], als.y[nonan], self.cfg["reftime"])
+        lon,lat = als.get('longitude'), als.get('latitude')
+        lon[nonan],lat[nonan] = icepos.longitude, icepos.latitude
+        als.set('longitude',lon)
+        als.set('latitude',lat)
 
         # 7. Set IceDriftCorrected
         als.IceDriftCorrected = True
@@ -232,6 +243,9 @@ class OffsetCorrectionFilter(ALSPointCloudFilter):
         # Check for correction files stored
         self.corr_files = [ifile for ifile in os.listdir('./') if ifile.endswith(self.cfg['export_file'])]
         
+        if len(self.corr_files)==0:
+            logger.info('ELEVCOR: Warning - OffsetCorrectionFilter called without providing correction files')
+        
         # Apply correction to als object
         for icor in self.corr_files:
             fpath = Path(icor).absolute()
@@ -243,9 +257,11 @@ class OffsetCorrectionFilter(ALSPointCloudFilter):
             t = np.array(df['timestamp'])
             c = np.array(df['%s_offset' %variable])
             
+            mask = np.all([np.isfinite(t),np.isfinite(c)],axis=0)
+            
             # Set-up interpolation function
-            func = interp1d(t-t[0],c, kind='linear',bounds_error=False,
-                            fill_value=(c[0],c[-1]))
+            func = interp1d(t[mask]-t[0],c[mask], kind='linear',bounds_error=False,
+                            fill_value=(c[mask][0],c[mask][-1]))
             
             # Apply ALS binary file
             data = als.get(variable)

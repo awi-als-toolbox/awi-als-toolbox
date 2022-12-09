@@ -834,7 +834,8 @@ class ALSMetadata(object):
                  "geospatial_lat_units", "geospatial_lat_resolution", "geospatial_lon_units",
                  "geospatial_lon_resolution", "geospatial_vertical_units", "geospatial_vertical_resolution",
                  "date_issued", "date_metadata_modified", "product_version", "platform", "platform_vocabulary",
-                 "instrument", "instrument_vocabulary", "cdm_data_type", "metadata_link", "references"]
+                 "instrument", "instrument_vocabulary", "cdm_data_type", "metadata_link", "references",
+                 "reference_time_drift_correction"]
 
     def __init__(self):
         """ Product Metadata following Attribute Convention for Data Discovery 1.3 """

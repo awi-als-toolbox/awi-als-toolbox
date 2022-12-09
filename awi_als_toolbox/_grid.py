@@ -227,8 +227,11 @@ class AlsDEM(object):
         # IDC TODO reverse the IceDriftCorrection is needed here!
         # IDC else:
         if self.IceDriftCorrection:
-            reftime = self.als.tcs_segment_datetime + 0.5*(self.als.tce_segment_datetime-self.als.tcs_segment_datetime)
-            icepos = self.als.IceCoordinateSystem.get_latlon_coordinates(self.dem_x, self.dem_y, reftime)
+            #reftime = self.als.tcs_segment_datetime + 0.5*(self.als.tce_segment_datetime-self.als.tcs_segment_datetime)
+            idc_cfg = self.cfg.input_filter[np.where([ifilt['pyclass']=='IceDriftCorrection' for ifilt in self.cfg.input_filter])[0][0]]
+            self.gridreftime = idc_cfg['keyw']['reftime']
+            self.metadata.set_attribute("reference_time_drift_correction", self.gridreftime)
+            icepos = self.als.IceCoordinateSystem.get_latlon_coordinates(self.dem_x, self.dem_y, self.gridreftime)
             self.lon ,self.lat = icepos.longitude, icepos.latitude
         else:
             self.lon, self.lat = self.p(self.dem_x, self.dem_y, inverse=True)
@@ -698,7 +701,7 @@ class ALSGridCollection(object):
         # Check if correction is activated for variables
         try:
             correction  = len(cfg.offset_correction['correcting_fields'])>0
-            uncertainty = np.sum([i.endswith('_uncertainty') for i in cfg.variable_attributes.keys()])>0
+            uncertainty = np.sum([i.endswith('_offset_cor_uncertainty') for i in cfg.variable_attributes.keys()])>0
         except:
             correction  = False
             uncertainty = False
@@ -707,7 +710,7 @@ class ALSGridCollection(object):
                                     return_fnames=return_fnames,
                                     cfg=cfg)
         if correction:
-            logger.info("1st Merging of Grids for elevation correction:")
+            logger.info("ELEVCOR: 1st Merging of Grids for elevation correction:")
             for i, grid in enumerate(self.grids):
                 if i in self.ignore_list:
                     continue
@@ -715,7 +718,7 @@ class ALSGridCollection(object):
                 merged_grid.add_grid(grid)#,use_low_reflectance_tiepoints=cfg.offset_correction['use_low_reflectance_tiepoints'])
             logger.info("... %g / %g done" % (self.n_grids, self.n_grids))
         
-            logger.info("Apply elevation correction:")
+            logger.info("ELEVCOR: Apply elevation correction:")
             # Compute correction function for each field in correcting_fields
             for ivar in merged_grid.correcting_fields:
                 if ivar=='freeboard':
@@ -726,7 +729,7 @@ class ALSGridCollection(object):
                     tie_point_times = np.array(df['timestamp'])
                 else:
                     tie_point_times = None
-                logger.info("Offest correction term is computed for variable: %s" %ivar)
+                logger.info("ELEVCOR: Offest correction term is computed for variable: %s" %ivar)
                 cfg.offset_correction['compute_cor_func']['export_dir'] = merged_grid.export_dir
                 merged_grid.correction[ivar].compute_cor_func(**cfg.offset_correction['compute_cor_func'])
                 #merged_grid.correction[ivar].compute_cor_func(tie_point_times=[None,'stored'][use_low_reflectance_tiepoints],
@@ -910,13 +913,15 @@ class ALSMergedGrid(object):
         # Check which variables to grid
         self.coord_names = ['lat', 'lon', 'xc', 'yc', 'time', 'time_bnds']
         self.cfg = cfg
-        print(self.cfg.offset_correction['correcting_fields'])
+        #print(self.cfg.offset_correction['correcting_fields'])
         try:
-            self.grid_variable_names = [i for i in self.cfg.variable_attributes.keys() if i not in self.coord_names and not i.endswith('_uncertainty')]
+            self.grid_variable_names = [i for i in self.cfg.variable_attributes.keys() if i not in self.coord_names and not i.endswith('_offset_cor_uncertainty')]
             self.correcting_fields = self.cfg.offset_correction['correcting_fields']
             self.correction = {ivar:ALSCorrection(ivar) for ivar in self.correcting_fields}
-            self.uncertainty_fields = [i.split('_')[0] for i in self.cfg.variable_attributes.keys() if i not in self.coord_names and i.endswith('_uncertainty')]
-            logger.info("Unvertainty computation activated for: %s" %", ".join(self.uncertainty_fields))
+            self.uncertainty_fields = [i.split('_')[0] for i in self.cfg.variable_attributes.keys() if i not in self.coord_names and i.endswith('_offset_cor_uncertainty')]
+            logger.info("ELEVCOR: Unvertainty computation activated for: %s" %", ".join(self.uncertainty_fields))
+            for ikey in self.cfg.offset_correction:
+                logger.info("ELEVCOR CFG: %s: %s" %(ikey,self.cfg.offset_correction[ikey]))
         except:
             logger.error("No configuration file provided: only evelation will be gridded")
             self.grid_variable_names = ['elevation']
@@ -1110,7 +1115,8 @@ class ALSMergedGrid(object):
             data_vars[grid_variable_name] = xr.Variable(grid_dims,self.grid[grid_variable_name].astype(np.float32),
                                             attrs=self.cfg.get_var_attrs(grid_variable_name))
             
-        self.reftime = datetime(1970,1,1,0,0,0) + timedelta(0,np.mean(self.reftimes))
+        #self.reftime = datetime(1970,1,1,0,0,0) + timedelta(0,np.mean(self.reftimes))
+        self.reftime = self.cfg.ice_drift_correction['keyw']['reftime']
         if recompute_latlon == True:
             try:
                 from floenavi.polarstern import PolarsternAWIDashboardPos
@@ -1127,9 +1133,9 @@ class ALSMergedGrid(object):
             except ImportError:
                 logger.error("Install packages floenavi and icedrift for ice drift corrected lat/lon values")
         
-        data_vars["lon"] = xr.Variable(grid_dims, self.lons.astype(np.float32),
+        data_vars["lon"] = xr.Variable(grid_dims, self.lons.astype(np.float64),
                                        attrs=self.cfg.get_var_attrs("lon"))
-        data_vars["lat"] = xr.Variable(coord_dims, self.lats.astype(np.float32),
+        data_vars["lat"] = xr.Variable(coord_dims, self.lats.astype(np.float64),
                                        attrs=self.cfg.get_var_attrs("lat"))
 
         # Collect all coords
@@ -1153,8 +1159,10 @@ class ALSMergedGrid(object):
         # Compute time parameters
         tcs = datetime.utcfromtimestamp(float(ds.timestamp.min()))
         tce = datetime.utcfromtimestamp(float(ds.timestamp.max()))
-        self.metadata.set_attribute("time_coverage_start", tcs)
-        self.metadata.set_attribute("time_coverage_end", tce)
+        #self.metadata.set_attribute("time_coverage_start", tcs)
+        #self.metadata.set_attribute("time_coverage_end", tce)
+        ds.attrs['time_coverage_start'] = tcs.strftime("%Y%m%dT%H%M%S")
+        ds.attrs['time_coverage_end'] = tce.strftime("%Y%m%dT%H%M%S")
 
         # Turn on compression for all variables
         comp = dict(zlib=True)
@@ -1221,9 +1229,18 @@ class ALSMergedGrid(object):
         for grid_variable_name in [i for i in self.grid_variable_names if i.endswith('_max') or i.endswith('_min')]:
             self.grid[grid_variable_name][~np.isfinite(self.grid[grid_variable_name])] = np.nan
         for ivar in self.uncertainty_fields:
-            self.grid['%s_uncertainty' %ivar] = self.grid['%s_max' %ivar]-self.grid['%s_min' %ivar]
-            self.grid['%s_uncertainty' %ivar][~np.isfinite(self.grid['%s_uncertainty' %ivar])] = np.nan
+            self.grid['%s_offset_cor_uncertainty' %ivar] = self.grid['%s_max' %ivar]-self.grid['%s_min' %ivar]
+            self.grid['%s_offset_cor_uncertainty' %ivar][~np.isfinite(self.grid['%s_offset_cor_uncertainty' %ivar])] = np.nan
 
+    @property
+    def fn_res(self):
+        """
+        A filename compatible resolution str
+        :return: str
+        """
+        res_str = "%.2fm" % self.res
+        res_str = res_str.replace(".", "p")
+        return res_str
     
     def filename(self, filetype, field_name='als'):
         """
@@ -1233,7 +1250,7 @@ class ALSMergedGrid(object):
         """
         try:
             template = str(self.cfg.filenaming)
-            filename = template.format(field_name=field_name,res=self.res,tcs=(datetime(1970,1,1,0,0,0) + timedelta(0,self.reftimes[0])).strftime("%Y%m%dT%H%M%S"), 
+            filename = template.format(field_name=field_name,res=self.fn_res,tcs=(datetime(1970,1,1,0,0,0) + timedelta(0,self.reftimes[0])).strftime("%Y%m%dT%H%M%S"), 
                                        tce=(datetime(1970,1,1,0,0,0) + timedelta(0,self.reftimes[-1])).strftime("%Y%m%dT%H%M%S"),ftype=filetype)
             return filename
         except:
@@ -1256,6 +1273,7 @@ class ALSCorrection(object):
         self.smpl_freq = smpl_freq
         self.export_dir = export_dir
         self.export_file = self.variable + export_file
+        self.export_tiepoint_file = self.variable + '_tiepoints.csv'
         
         self.mean_elev   = np.array([]) # Mean variable (elevation) in 30s segment
         self.mean_elev_t = np.array([]) # Mean time in 30s segment
@@ -1273,6 +1291,13 @@ class ALSCorrection(object):
                                 if ndim=2 (3,N) time, correction term at tie points, and background aroung tie points are given,
         :param add_tendecy: adds tendecies to all time points without tie point constraints
         :param tie_point_bin_length: length of the time bin around tie points"""
+        
+        
+        logger.info('ELEVCOR: Computation offset correction term started with parameter')
+        logger.info('ELEVCOR: tie_point_times      - %s' %tie_point_times)
+        logger.info('ELEVCOR: add_tendency         - %s' %add_tendency)
+        logger.info('ELEVCOR: tie_point_bin_length - %s' %tie_point_bin_length)
+        logger.info('ELEVCOR: export_dir           - %s' %export_dir)
         
         self.tie_point_times = tie_point_times
         
@@ -1295,9 +1320,9 @@ class ALSCorrection(object):
                 if np.array(self.tie_point_times).ndim == 2:
                     self.tie_point_times = self.tie_point_times[:,0]
                     self.tie_point_vals  = self.tie_point_times[:,1] 
-                    self.tie_point_bckg  = self.tie_point_times[:,0] 
+                    self.tie_point_bckg  = self.tie_point_times[:,1] 
                 elif self.tie_point_times == 'stored':
-                    logger.info('Offset correction computation uses zero times from stored reference values')
+                    logger.info('ELEVCOR: Offset correction computation uses zero times from stored reference values')
                     self.tie_point_times = self.t_reg_ref
                     self.tie_point_vals = self.e_reg_ref
                     self.tie_point_bckg = self.e_bckg_ref
@@ -1387,7 +1412,7 @@ class ALSCorrection(object):
                 if self.tie_point_times is None:
                     self.solution = np.concatenate([np.concatenate([self.solution,self.mean_int-np.mean(self.mean_int)])])
                 else:
-                    logger.info('Uses background elevation around tie points as tendency level')
+                    logger.info('ELEVCOR: Uses background elevation around tie points as tendency level')
                     self.bckg_int = interp1d(self.tie_point_times-self.t_bins[0], self.tie_point_bckg, kind='linear',bounds_error=False,
                                          fill_value=(self.tie_point_bckg[0],
                                                      self.tie_point_bckg[-1]))(0.5*(self.t_bins[:-1]+self.t_bins[1:])-self.t_bins[0])
@@ -1443,7 +1468,13 @@ class ALSCorrection(object):
                                  self.c, kind='linear',bounds_error=False,
                                  fill_value=(self.c[0],self.c[-1]))
             
+            # Export computed correction function
             self._export_correction()
+            
+            # Export tie points if used in computation
+            if self.tie_point_times is not None:
+                logger.info('ELEVCOR: exported tie points to %s %s' %(self.export_dir,self.export_tiepoint_file))
+                self._export_correction_tiepoints()
             
             self.data_avail = True
             
@@ -1452,29 +1483,53 @@ class ALSCorrection(object):
         
     # Function to read correction term from csv file -> needs export file
     def _export_correction(self):
-        for i in range(len(self.t_c)):
-            with self._get_export() as export_file:
-                export_file.write('%.15f,%.15f\n' %(0.5*(self.t_bins[1:]+
+        export_file = Path(self.export_dir).absolute().joinpath(self.export_file)
+        # Overwrite file if it exists
+        with export_file.open(mode='w') as f:
+            f.write('timestamp,%s_offset\n' %self.variable)
+            f.close()
+        # Link export file in current work directory (for open water detection)
+        local_file = Path(self.export_file).absolute()
+        if local_file.is_file():
+            os.remove(local_file)
+        os.symlink(export_file,local_file)
+        
+        with export_file.open(mode='a') as f:
+            for i in range(len(self.t_c)):
+                #with self._get_export() as export_file:
+                f.write('%.15f,%.15f\n' %(0.5*(self.t_bins[1:]+
                                       self.t_bins[:-1])[self.ind_c][i],self.c[i]))
-                export_file.close()
+            f.close()
+        logger.info('ELEVCOR: correction term exported to %s' %(export_file))
      
     
     # Function to open csv export file to write info into
     def _get_export(self):
-        # Check if file exists
         export_file = Path(self.export_dir).absolute().joinpath(self.export_file)
         if not export_file.is_file():
-            # Otherwise create new file with header
             with export_file.open(mode='w') as f:
                 f.write('timestamp,%s_offset\n' %self.variable)
                 f.close()
-        # Link export file in current work directory
+        # Link export file in current work directory (for open water detection)
         local_file = Path(self.export_file).absolute()
         if local_file.is_file():
             os.remove(local_file)
         os.symlink(export_file,local_file)
         # Open file to read
         return export_file.open(mode='a')
+    
+    
+    # Function to read correction term from csv file -> needs export file
+    def _export_correction_tiepoints(self):
+        export_file = Path(self.export_dir).absolute().joinpath(self.export_tiepoint_file)
+        # Overwrite file if it exists
+        with export_file.open(mode='w') as f:
+            f.write('timestamp,%s_value,%s_background\n' %(self.variable,self.variable))
+            f.close()
+        with export_file.open(mode='a') as f:
+            for i in range(len(self.tie_point_times)):
+                f.write('%.15f,%.15f,%.15f\n' %(self.tie_point_times[i],self.tie_point_vals[i],self.tie_point_bckg[i]))
+            f.close()
  
     
 
@@ -1587,6 +1642,12 @@ def extract_low_reflectance_regions(grid, thres=3,filt_size=5,chunk_size=0.5,min
     emean = uniform_filter(eref,size=background_scale)/uniform_filter(mask_eref.astype('float'),size=background_scale)
     emean[~mask_eref] = np.nan
     ebckg_reg = emean[mask] - eref_reg
+    
+    # Mask leads, i.e. e<emean
+    mask_leads = grid.nc['elevation'].data[mask]<emean[mask]
+    t_reg = t_reg[mask_leads]
+    eref_reg = eref_reg[mask_leads]
+    ebckg_reg = ebckg_reg[mask_leads]
 
     # Initialze data arrays for clusters
     t = []
