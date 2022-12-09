@@ -1,0 +1,155 @@
+filenaming: awi-mosaic-{proc_level}-elevation-vq580-stere-{res}-{tcs}-{tce}-fv2p0.nc
+
+export_dir: /home/ollie/nhutter/icesence/test_output/
+
+global_attributes: 
+  title: Snow freeboard from airborne laserscanning data
+  Conventions: ACDD-1.3
+  naming_authority: de.awi
+  processing_level: l4
+  license: Free and unrestricted access
+  standard_name_vocabulary: CF Standard Name Table v27
+  creator_name: Nils Hutter
+  creator_email: nils.hutter@awi.de
+  creator_url: www.awi.de
+  creator_type: group
+  contributor_name: Stefan Hendricks, Arttu Jutila, Robert Ricker, Luisa von Albedyll, Gerit Birnbaum
+  contributor_role: data provider
+  institution: Alfred Wegener Institute Helmholtz Centre for Polar and Marine Research
+  program: Multidisciplinary drifting Observatory for the Study of the Arctic Climate (MOSAiC 2019_2020, AWI_PS122_00)
+  project: MOSAiC HELI
+  product_version: 1.0
+  platform: Polarstern helicopter (D-HARK)
+  instrument: Riegl VQ580
+  cdm_data_type: Grid
+
+variable_attributes:
+  
+  elevation:
+    coordinates: "time yc xc"
+    long_name: "elevation of the sea ice or snow surface above WGS84 ellipsoid"
+    comment: ""
+    units: "m"
+    
+  elevation_reference:
+    coordinates: "time yc xc"
+    long_name: "reference elevation of the DTU21 mean sea surface"
+    comment: ""
+    units: "m"
+    
+  freeboard:
+    coordinates: "time yc xc"
+    long_name: "freeboard of the sea ice or snow surface"
+    comment: ""
+    units: "m"
+    
+  freeboard_uncertainty:
+    coordinates: "time yc xc"
+    long_name: "Uncertainty of freeboard"
+    comment: ""
+    units: "m"
+    
+  sea_surface_height:
+    coordinates: "time yc xc"
+    long_name: "Sea level height used for freeboard conversion"
+    comment: ""
+    units: "m"
+
+  reflectance:
+    coordinates: "time yc xc"
+    long_name: "range corrected target echo amplitude"
+    comment: ""
+    units: "dB"
+
+  echo_width:
+    coordinates: "time yc xc"
+    long_name: "width of the target echo return (full width at half maximum)"
+    comment: ""
+    units: "ns"
+
+  n_points:
+    coordinates: "time yc xc"
+    long_name: "number of level-2 points per grid cell"
+    comment: "n_points = 0 in the presence of a geophysical parameter means that the parameter is based on interpolation"
+    units: "m"
+    
+  timestamp:
+    coordinates: "time yc xc"
+    long_name: "timestamp of measurement"
+    comment: ""
+    units: "s"
+
+  lat:
+    long_name: "latitude coordinate"
+    standard_name: "latitude"
+    units: "degrees_north"
+  
+  lon:
+    long_name: "longitude coordinate"
+    standard_name: "longitude"
+    units: "degrees_east"
+
+  xc:
+    standard_name: "projection_x_coordinate"
+    long_name: "x coordinate of projection"
+    units: "m"
+
+  yc:
+    standard_name: "projection_y_coordinate"
+    long_name: "y coordinate of projection"
+    units: "m"
+
+  time:
+    standard_name: "time"
+    units: "seconds since 1970-01-01"
+    long_name: "reference time of the product"
+    calendar: "standard"
+    bounds: "time_bnds"
+
+  time_bnds:
+    units: "seconds since 1970-01-01"
+    long_name: "time range of the product"
+    calendar: "standard"
+    
+    
+#   mask_above_ice:
+#     coordinates: "time yc xc"
+#     long_name: "mask_above_ice"
+#     comment: ""
+#     units: "m"
+    
+#   mask_below_ssh:
+#     coordinates: "time yc xc"
+#     long_name: "mask_below_ssh"
+#     comment: ""
+#     units: "m"
+    
+#   mask_max:
+#     coordinates: "time yc xc"
+#     long_name: "mask_max"
+#     comment: ""
+#     units: "m"
+    
+#   mask_min:
+#     coordinates: "time yc xc"
+#     long_name: "mask_min"
+#     comment: ""
+#     units: "m"
+
+#   ssh_int:
+#     coordinates: "time yc xc"
+#     long_name: "ssh_int"
+#     comment: ""
+#     units: "m"
+
+#   dis:
+#     coordinates: "time yc xc"
+#     long_name: "dis"
+#     comment: ""
+#     units: "m"
+    
+#   low_env_xy:
+#     coordinates: "time yc xc"
+#     long_name: "low_env_xy"
+#     comment: ""
+#     units: "m"
