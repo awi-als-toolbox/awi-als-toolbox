@@ -1,0 +1,69 @@
+# Survey type: CO floe grid -> floe grid
+# Season: winter/good gps
+
+# Filter applied to the input
+input_filter: 
+  - pyclass: AtmosphericBackscatterFilter
+    keyw: {}
+  - pyclass: IceDriftCorrection
+    keyw: {'use_polarstern' : True}
+    
+
+# Openwater detection and freeboard
+freeboard:
+  OpenWaterDetection:
+    fov_resolution: 0.05550000071525574
+    rflc_thres: 3.
+    rflc_minmax: True
+    elev_segment: 0.2
+    elev_tol: 0.05
+  SeaSurfaceInterpolation:
+    interp2d: True
+    limit_freeboard: True
+
+# Offset correction parameters
+offset_correction:
+  correcting_fields: ['elevation']
+  use_low_reflectance_tie_points: True
+  compute_cor_func:
+    add_tendency: False
+  
+# The gridding resolution in meter
+resolution_m: 0.5
+
+# The segment lengths in seconds for which a DEM will be generated
+segment_len_secs: 30
+
+# The gridding method
+# NOTE: At the moment this is without alternative
+method: scipy.griddata
+
+# Gap filling method
+gap_filling:
+  algorithm: maximum_filter
+  keyw:
+    size: 3
+    mode: nearest
+
+# The projection definition
+projection:
+  proj: stere
+  lat_0: 84.0
+  lat_ts: 70.0
+  lon_0: 15.0
+  ellps: WGS84
+  datum: WGS84
+
+# This is for the grid_mapping variable in netCDF files
+grid_mapping:
+  name: Polar_Stereographic_Grid
+  attrs:
+    grid_mapping_name: "polar_stereographic"
+    false_easting: 0.0
+    false_northing: 0.0
+    semi_major_axis: 6378137.0
+    semi_minor_axis: 6356752.3142
+    straight_vertical_longitude_from_pole: 15.0
+    latitude_of_projection_origin: 84.0
+    standard_parallel: 70.0
+    proj4_string: "+proj=stere +lat_0=84.0 +lat_ts=70 +lon_0=15.0 +ellps=WGS84 +datum=WGS84"

@@ -1,0 +1,114 @@
+filenaming: awi-mosaic-l4-{field_name}-vq580-stere-{res}-{tcs}-{tce}-fv2p0.{ftype}
+
+#correcting_fields:
+#  ['elevation']
+
+global_attributes: 
+  title: Snow freeboard from airborne laserscanning data
+  Conventions: ACDD-1.3
+  naming_authority: de.awi
+  processing_level: l4
+  license: Free and unrestricted access
+  standard_name_vocabulary: CF Standard Name Table v27
+  creator_name: Nils Hutter
+  creator_email: nils.hutter@awi.de
+  creator_url: www.awi.de
+  creator_type: group
+  contributor_name: Stefan Hendricks, Arttu Jutila, Robert Ricker, Luisa von Albedyll, Gerit Birnbaum
+  contributor_role: data provider
+  institution: Alfred Wegener Institute Helmholtz Centre for Polar and Marine Research
+  program: Multidisciplinary drifting Observatory for the Study of the Arctic Climate (MOSAiC 2019_2020, AWI_PS122_00)
+  project: MOSAiC HELI
+  product_version: 1.0
+  platform: Polarstern helicopter (D-HARK)
+  instrument: Riegl VQ580
+  cdm_data_type: Grid
+
+variable_attributes:
+  
+  elevation:
+    coordinates: "time yc xc"
+    long_name: "elevation of the sea ice or snow surface above DTU21 mean sea surface"
+    comment: ""
+    units: "m"
+
+  elevation_reference:
+    coordinates: "time yc xc"
+    long_name: "reference elevation of the DTU21 mean sea surface"
+    comment: ""
+    units: "m"
+
+  freeboard:
+    coordinates: "time yc xc"
+    long_name: "freeboard of the sea ice or snow surface"
+    comment: ""
+    units: "m"
+    
+  freeboard_uncertainty:
+    coordinates: "time yc xc"
+    long_name: "Uncertainty of freeboard"
+    comment: ""
+    units: "m"
+    
+  sea_surface_height:
+    coordinates: "time yc xc"
+    long_name: "Sea level height used for freeboard conversion"
+    comment: ""
+    units: "m"
+
+  reflectance:
+    coordinates: "time yc xc"
+    long_name: "range corrected target echo amplitude"
+    comment: ""
+    units: "dB"
+    
+  echo_width:
+    coordinates: "time yc xc"
+    long_name: "width of the target echo return (full width at half maximum)"
+    comment: ""
+    units: "ns"
+    
+  timestamp:
+    coordinates: "time yc xc"
+    long_name: "timestamp of point record"
+    comment: ""
+    units: "s"
+
+  lat:
+    long_name: "latitude coordinate"
+    standard_name: "latitude"
+    units: "degrees_north"
+  
+  lon:
+    long_name: "longitude coordinate"
+    standard_name: "longitude"
+    units: "degrees_east"
+
+  xc:
+    standard_name: "projection_x_coordinate"
+    long_name: "x coordinate of projection"
+    units: "m"
+
+  yc:
+    standard_name: "projection_y_coordinate"
+    long_name: "y coordinate of projection"
+    units: "m"
+
+  time:
+    standard_name: "time"
+    units: "seconds since 1970-01-01"
+    long_name: "reference time of the product"
+    calendar: "standard"
+    bounds: "time_bnds"
+
+  time_bnds:
+    units: "seconds since 1970-01-01"
+    long_name: "time range of the product"
+    calendar: "standard"
+
+
+#   elevation_uncertainty:
+#     coordinates: "time yc xc"
+#     long_name: "uncertainty in the elevation of the sea ice or snow surface above WGS84 ellipsoid"
+#     comment: ""
+#     units: "m"
