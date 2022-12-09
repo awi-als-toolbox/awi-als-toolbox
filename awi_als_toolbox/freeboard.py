@@ -177,7 +177,7 @@ class DetectOpenWater(ALSPointCloudFilter):
 #         # 7. Export open water points
 #         self._export_open_water_points((nadir_inds[0][peaks_glob],nadir_inds[1][peaks_glob]),als)
         
-    def apply(self, als, do_plot=False, savefig=False):
+    def apply(self, als, do_plot=False, savefig=False, return_plot=False):
         """
         Apply the filter for all lines in the ALS data container
         :param als:
@@ -257,21 +257,24 @@ class DetectOpenWater(ALSPointCloudFilter):
 
             # Start plot if activated
             if do_plot:
-                fig,ax = plt.subplots(2,2,sharex=True, figsize=(10,6),
-                                      gridspec_kw={'height_ratios':[1.5,1]})
+                fig,ax = plt.subplots(2,2,sharex=True, figsize=(10,5),
+                                      gridspec_kw={'height_ratios':[1.3,1]},constrained_layout=True)
 
                 for i,iax in enumerate(ax.flatten()):
-                    iax.annotate(['a)','b)','c)','d)'][i], xy=(-0.15, 1.0), xycoords="axes fraction",verticalalignment='center')
+                    iax.annotate(['(a)','(b)','(c)','(d)'][i], xy=(-0.15, 1.0), xycoords="axes fraction",
+                                 verticalalignment='center',weight='bold')
 
-                pcm=ax[0,0].pcolormesh(als.get('elevation').T)
+                pcm=ax[0,0].pcolormesh(als.get('elevation').T,zorder=-10)
                 ax[0,0].plot(nadir_inds[0],nadir_inds[1],'k--')
-                plt.colorbar(pcm,ax=ax[0,0],location='bottom',label='Elevation in m')
+                plt.colorbar(pcm,ax=ax[0,0],location='top',label='Elevation in m')
                 ax[0,0].set_yticks([])
+                ax[0,0].set_ylabel('shots')
 
-                pcm=ax[0,1].pcolormesh(als.get('reflectance').T,cmap=plt.get_cmap('magma'))
+                pcm=ax[0,1].pcolormesh(als.get('reflectance').T,cmap=plt.get_cmap('magma'),zorder=-10)
                 ax[0,1].plot(nadir_inds[0],nadir_inds[1],'k--')
-                plt.colorbar(pcm,ax=ax[0,1],location='bottom',label='Reflectance in dB')
+                plt.colorbar(pcm,ax=ax[0,1],location='top',label='Reflectance in dB')
                 ax[0,1].set_yticks([])
+                ax[0,1].set_ylabel('shots')
 
                 time_nadir = als.get('timestamp')[:,int(als.get('timestamp').shape[1]/2)]
 
@@ -290,6 +293,7 @@ class DetectOpenWater(ALSPointCloudFilter):
                     ax[1,0].set_xticklabels(['%i' %np.round(time_nadir[int(indt)]-time_nadir[0]) for indt in ax[1,0].get_xticks()])
                 except:
                     ax[1,0].set_xlabel('Line No.')
+                ax[1,0].xaxis.set_ticks_position('both')
 
                 ax[1,1].plot(np.arange(als.n_lines)[mask_roll][mask_ex_nadir],
                              np.ones(elev_nadir.size)*self.cfg["rflc_thres"]+np.nanmean(rflc_nadir_m),'--',color='0.7')
@@ -302,6 +306,7 @@ class DetectOpenWater(ALSPointCloudFilter):
                     ax[1,1].set_xticklabels(['%i' %np.round(time_nadir[int(indt)]-time_nadir[0]) for indt in ax[1,1].get_xticks()])
                 except:
                     ax[1,1].set_xlabel('Line No.')
+                ax[1,1].xaxis.set_ticks_position('both')
 
 
             # 5. Check reflectance of potential points
@@ -356,11 +361,17 @@ class DetectOpenWater(ALSPointCloudFilter):
             # 6. (optional) plot results of open water detection
             if do_plot:
                 ind_start = 0 
-                for i in cluster_breaks:
+                for ii,i in enumerate(cluster_breaks):
                     ax[0,0].scatter(nadir_inds[0][owp[ind_start:i]],nadir_inds[1][owp[ind_start:i]],c='0.85',edgecolors='0.4',zorder=10)
                     ax[0,1].scatter(nadir_inds[0][owp[ind_start:i]],nadir_inds[1][owp[ind_start:i]],c='0.85',edgecolors='0.4',zorder=10)
-                    ax[1,0].plot(np.arange(als.n_lines)[mask_roll][mask_ex_nadir][owp[ind_start:i]], elev_nadir[owp[ind_start:i]], ".")
-                    ax[1,1].plot(np.arange(als.n_lines)[mask_roll][mask_ex_nadir][owp[ind_start:i]], rflc_nadir[owp[ind_start:i]], ".")
+                    ax[1,0].plot(np.arange(als.n_lines)[mask_roll][mask_ex_nadir][owp[ind_start:i]], elev_nadir[owp[ind_start:i]], ".",
+                                 alpha=1.0,color=plt.get_cmap('tab20')(2*ii+1))
+                    ax[1,0].plot(np.nanmean(np.arange(als.n_lines)[mask_roll][mask_ex_nadir][owp[ind_start:i]]), 
+                                 np.nanmean(elev_nadir[owp[ind_start:i]]), "x",color=plt.get_cmap('tab20')(2*ii))
+                    ax[1,1].plot(np.arange(als.n_lines)[mask_roll][mask_ex_nadir][owp[ind_start:i]], rflc_nadir[owp[ind_start:i]], ".",
+                                 alpha=1.0,color=plt.get_cmap('tab20')(2*ii))
+                    #ax[1,1].plot(np.nanmean(np.arange(als.n_lines)[mask_roll][mask_ex_nadir][owp[ind_start:i]]), 
+                    #             np.nanmean(rflc_nadir[owp[ind_start:i]]), "x",color=plt.get_cmap('tab10')(ii))
                     ind_start = i + 1
 
                 if savefig:
@@ -372,6 +383,9 @@ class DetectOpenWater(ALSPointCloudFilter):
             # 7. Export open water points
             #self._export_open_water_points((nadir_inds[0][peaks_glob],nadir_inds[1][peaks_glob]),als)
             self._export_open_water_clusters(cluster_info,als)
+            
+            if return_plot and do_plot:
+                return fig,ax,nadir_inds,np.arange(als.n_lines)[mask_roll][mask_ex_nadir]
             
         else:
             logger.info('OWDETC: Warning: all nadir elevations in this segment are NaN')
