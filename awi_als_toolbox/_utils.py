@@ -9,7 +9,17 @@ __author__ = "Stefan Hendricks"
 import yaml
 import importlib
 from pyproj import Geod
-from attrdict import AttrDict
+from collections import UserDict
+
+
+class AttrDict(UserDict):
+    def __getattr__(self, key):
+        return self.__getitem__(key)
+
+    def __setattr__(self, key, value):
+        if key == "data":
+            return super().__setattr__(key, value)
+        return self.__setitem__(key, value)
 
 
 def geo_inverse(lon0, lat0, lon1, lat1):

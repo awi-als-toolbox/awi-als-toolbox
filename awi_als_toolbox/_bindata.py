@@ -6,7 +6,10 @@ import struct
 
 from loguru import logger
 from collections import OrderedDict
-from cached_property import cached_property
+try:
+    from cached_property import cached_property
+except ImportError:
+    from functools import cached_property
 
 import numpy as np
 from datetime import datetime
@@ -149,7 +152,7 @@ class AirborneLaserScannerFile(object):
 
                 # Go to next line
                 startbyte = np.uint64(startbyte + nbytes)
-                
+
             logger.info('Parse lines: 100% and finished')
 
         # Convert timestamp (seconds since start of the UTC day -> seconds since 1970-01-01)
@@ -559,7 +562,7 @@ class ALSPointCloudData(object):
         # save data arrays
         self._shot_vars = shot_vars
         self._line_vars = line_vars
-        
+
         # add new weights field
         self.set_weights()
 
@@ -805,7 +808,7 @@ class ALSPointCloudData(object):
             self._line_vars[attr] = var
         else:
             return None
-        
+
     def set_weights(self):
         """
         Set weights depending of angle of view
