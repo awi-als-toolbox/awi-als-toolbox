@@ -129,10 +129,10 @@ class AirborneLaserScannerFile(object):
         #       reader is always positioned at the start byte of a particular line
         with open(self.filepath, 'rb') as f:
 
-            #for i in tqdm.tqdm(np.arange(n_selected_lines), desc="Parse lines"):
+            #  for i in tqdm.tqdm(np.arange(n_selected_lines), desc="Parse lines"):
             for i in np.arange(n_selected_lines):
-                if i%int(n_selected_lines/10)==0:
-                    logger.info('Parse lines: %i%%' %np.ceil(i/(n_selected_lines)*100))
+                if i % int(n_selected_lines/10) == 0:
+                    logger.info('Parse lines: %i%%' % np.ceil(i / n_selected_lines * 100))
 
                 # Position to the start byte of the current line
                 f.seek(startbyte)
@@ -591,7 +591,10 @@ class ALSPointCloudData(object):
             return
         for illegal_values in [illegal_lat, illegal_lon]:
             for key in self.shot_variables:
-                var = getattr(self, key)
+                try:
+                    var = getattr(self, key)
+                except AttributeError:
+                    continue
                 # FIXME: This will break for non float variable such as n_echoes
                 var[illegal_values] = np.nan
                 setattr(self, key, var)
